@@ -1,0 +1,52 @@
+{
+  "scope": "ESX shared kit, Mixing bundled kit, and active Mixing deployment",
+  "changes": [
+    "project /esx-loop command",
+    "Arch routine autonomy and consequential escalation criteria",
+    "durable required loop/issue/lesson notification queue",
+    "Slack MCP and Web API receipt validation",
+    "bounded notification finalization at work budget"
+  ],
+  "verification": {
+    "full_regression": {
+      "tests": 200,
+      "failures": 0,
+      "log": "regression-final.log"
+    },
+    "changed_mechanism_followup": {
+      "autonomous_tests": 19,
+      "ralph_tests": 30,
+      "failures": 0
+    },
+    "live_claude_slash_command": {
+      "status": "PASS",
+      "log": "live-command-final.log"
+    },
+    "live_slack": {
+      "status": "PASS",
+      "channel": "C0C27T304GH",
+      "message_ts": "1789655709.430949",
+      "message_link": "https://jpl.slack.com/archives/C0C27T304GH/p1789655709430949",
+      "evidence": "slack-delivery-receipt.json",
+      "scope": "One explicitly authorized validation message; other queued loop events remain separate."
+    },
+    "installed_project_audit": "PASS",
+    "published_file_hashes": {
+      "count": 49,
+      "mismatches": 0
+    },
+    "installed_gate_routes_pending_notifications": true,
+    "queued_events": 3
+  },
+  "preservation": [
+    "scientific source/configuration unchanged by this upgrade",
+    "active retained assignments and issue evidence preserved",
+    "existing loop budget and prompt preserved",
+    "no commits or global plugin edits"
+  ],
+  "limitations": [
+    "provider calls are performed by Arch; local code validates recorded responses, not Slack server truth",
+    "unavailable provider or abrupt termination may leave delivery pending for the next session",
+    "contract changes can require existing retained sessions to use the documented runtime-transition assessment before resuming"
+  ]
+}

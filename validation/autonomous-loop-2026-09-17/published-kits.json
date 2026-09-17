@@ -1,0 +1,240 @@
+[
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/README.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/README.md",
+    "before": "b24549237adfd179ac8fed2355ccb2ce189dba092cb900de5e4df325d0b2c722",
+    "after": "fb9b6e056758eb8292763766f16a64f40bf1e3b1653e2b902d311ca8d99bf2ca",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/0"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/README.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/README.md",
+    "before": "b24549237adfd179ac8fed2355ccb2ce189dba092cb900de5e4df325d0b2c722",
+    "after": "fb9b6e056758eb8292763766f16a64f40bf1e3b1653e2b902d311ca8d99bf2ca",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/1"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/tests/live_autonomous_loop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/tests/live_autonomous_loop.py",
+    "before": null,
+    "after": "755e6887512bf40b9624a5695cc2b79eac42bc8ca411cf015946dfd2e088d253",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/tests/live_autonomous_loop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/tests/live_autonomous_loop.py",
+    "before": null,
+    "after": "755e6887512bf40b9624a5695cc2b79eac42bc8ca411cf015946dfd2e088d253",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/tests/test_autonomous_loop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/tests/test_autonomous_loop.py",
+    "before": null,
+    "after": "b6b330915c64d5c61abb0db3ee277f7538cb842a9d87665021eefefe4024d793",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/tests/test_autonomous_loop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/tests/test_autonomous_loop.py",
+    "before": null,
+    "after": "b6b330915c64d5c61abb0db3ee277f7538cb842a9d87665021eefefe4024d793",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/esx/project_instructions.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/esx/project_instructions.md",
+    "before": "0b897b0aba06dfe990321782ed2c7daeef71af3a3159c0e30984c193cabfcbbb",
+    "after": "876bc60758970acfeba5c49d40f674831252ae2a35e2451b1b7fae61f6f41790",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/6"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/esx/project_instructions.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/esx/project_instructions.md",
+    "before": "0b897b0aba06dfe990321782ed2c7daeef71af3a3159c0e30984c193cabfcbbb",
+    "after": "876bc60758970acfeba5c49d40f674831252ae2a35e2451b1b7fae61f6f41790",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/7"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/docs/esx_framework_map.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/docs/esx_framework_map.md",
+    "before": "6401bb7b8e555c2d39bfefdccfefb980a5cc969419724adc6e8fdcb1a1157cea",
+    "after": "7c0db836d651bea4d4d331a5262ff50d92dacc7537b18483ebbff0b78ccb9dda",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/9"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/docs/esx_framework_map.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/docs/esx_framework_map.md",
+    "before": "6401bb7b8e555c2d39bfefdccfefb980a5cc969419724adc6e8fdcb1a1157cea",
+    "after": "7c0db836d651bea4d4d331a5262ff50d92dacc7537b18483ebbff0b78ccb9dda",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/10"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/devel-loop/communication.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/communication.md",
+    "before": "f62fb5489f8c9d1a2fd5eefb6ab86fef0347b81558ecf3003feb7f282cbd6d22",
+    "after": "2cf74f99b640d9d68963ffa16b7bfee68fd5a1e5e5fb3cca70bfb315422ecded",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/12"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/devel-loop/communication.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/communication.md",
+    "before": "f62fb5489f8c9d1a2fd5eefb6ab86fef0347b81558ecf3003feb7f282cbd6d22",
+    "after": "2cf74f99b640d9d68963ffa16b7bfee68fd5a1e5e5fb3cca70bfb315422ecded",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/13"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/devel-loop/loop_contract.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/loop_contract.md",
+    "before": "13a11c828ec270d6960a1add0907275047f9fa8242a7081f38147e4b1b44ce96",
+    "after": "9c6cf25244e6640db64811bee89958844800d06b4ea811e47f1ab6f316570e18",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/15"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/devel-loop/loop_contract.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/loop_contract.md",
+    "before": "13a11c828ec270d6960a1add0907275047f9fa8242a7081f38147e4b1b44ce96",
+    "after": "9c6cf25244e6640db64811bee89958844800d06b4ea811e47f1ab6f316570e18",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/16"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/devel-loop/autonomous_prompt.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/autonomous_prompt.md",
+    "before": null,
+    "after": "6da5db6c57b212527d39e2b6655b97a6ea66e7858dba6284fa06f0c62763508c",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/devel-loop/autonomous_prompt.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/devel-loop/autonomous_prompt.md",
+    "before": null,
+    "after": "6da5db6c57b212527d39e2b6655b97a6ea66e7858dba6284fa06f0c62763508c",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/ESX-team/ARCHITECT.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/ESX-team/ARCHITECT.md",
+    "before": "d97d9cfe2941f2ff742028c87d00b986f1bc6f95c5239d5c3f569237073bc6d1",
+    "after": "b7ceb63ffd01594b20d631fea7a9ac94102ed0dfaaf476dbb6bd9d7b012c6ec8",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/21"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/ESX-team/ARCHITECT.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/ESX-team/ARCHITECT.md",
+    "before": "d97d9cfe2941f2ff742028c87d00b986f1bc6f95c5239d5c3f569237073bc6d1",
+    "after": "b7ceb63ffd01594b20d631fea7a9ac94102ed0dfaaf476dbb6bd9d7b012c6ec8",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/22"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/commands/esx-loop.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/commands/esx-loop.md",
+    "before": null,
+    "after": "64f3b4edace1923ec4f09ab7ddf2e42d3a28380bbf645ec58594fe2bf42391a2",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/commands/esx-loop.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/commands/esx-loop.md",
+    "before": null,
+    "after": "64f3b4edace1923ec4f09ab7ddf2e42d3a28380bbf645ec58594fe2bf42391a2",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/skills/esx-announce/SKILL.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/skills/esx-announce/SKILL.md",
+    "before": "3cb466cb5573a0071524de44791bc8af1e1be0add798ec672a047e618b095184",
+    "after": "05a6e4a4e7251740c465230c0fda0821d8a66681d4d193abac800244d8651c09",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/27"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/skills/esx-announce/SKILL.md",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/.claude/skills/esx-announce/SKILL.md",
+    "before": "3cb466cb5573a0071524de44791bc8af1e1be0add798ec672a047e618b095184",
+    "after": "05a6e4a4e7251740c465230c0fda0821d8a66681d4d193abac800244d8651c09",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/28"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/hooks.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/hooks.py",
+    "before": "25828fe0b7ebe961e7010daf816a375e268194738f5ada084bc84468c0162280",
+    "after": "e379a910a089681841940e800ebeec6ba4c030827630c7854f3e49e534d85cf1",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/30"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/hooks.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/hooks.py",
+    "before": "25828fe0b7ebe961e7010daf816a375e268194738f5ada084bc84468c0162280",
+    "after": "e379a910a089681841940e800ebeec6ba4c030827630c7854f3e49e534d85cf1",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/31"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/audit.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/audit.py",
+    "before": "87324ef950aeb9fff3cc8a1c7fe5e303174d22008e100ba3f2750c4ac9d05f25",
+    "after": "c608cb59d8a44fb3a5cbb88cc3e7bf76239fb938f4455c3f50114f53dbb36f1d",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/33"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/audit.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/audit.py",
+    "before": "87324ef950aeb9fff3cc8a1c7fe5e303174d22008e100ba3f2750c4ac9d05f25",
+    "after": "c608cb59d8a44fb3a5cbb88cc3e7bf76239fb938f4455c3f50114f53dbb36f1d",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/34"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/loop_gate.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/loop_gate.py",
+    "before": "46c82b38776b175f11faed529bb2d4af88375155349dc84e5a7ed225351d4df3",
+    "after": "3b7c42c1498354dbc273f2684d86b99e98f6bae4f0b251747618273688da463c",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/36"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/loop_gate.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/loop_gate.py",
+    "before": "46c82b38776b175f11faed529bb2d4af88375155349dc84e5a7ed225351d4df3",
+    "after": "3b7c42c1498354dbc273f2684d86b99e98f6bae4f0b251747618273688da463c",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/37"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/loop_control.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/loop_control.py",
+    "before": "c22a8a256c23a78256382ad9d365573972398dbc6aeaab147d40c3284ce6c08e",
+    "after": "40685a3f4a9451b31355058133f311b833dccf8de6552d96deeb1c64b16e1cab",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/39"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/loop_control.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/loop_control.py",
+    "before": "c22a8a256c23a78256382ad9d365573972398dbc6aeaab147d40c3284ce6c08e",
+    "after": "40685a3f4a9451b31355058133f311b833dccf8de6552d96deeb1c64b16e1cab",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/40"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/notifications.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/notifications.py",
+    "before": null,
+    "after": "4da19dbd893af6ae9f1145e871badde97e8e8fb353ef6c31294ddeacfc886b64",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/notifications.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/notifications.py",
+    "before": null,
+    "after": "4da19dbd893af6ae9f1145e871badde97e8e8fb353ef6c31294ddeacfc886b64",
+    "backup": null
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/tools/esx/ralph_stop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/ralph_stop.py",
+    "before": "37bd48db586aa6c677dfb8c77b377a6d36276970203851c48e31311821ea9ea1",
+    "after": "d3ceb212d4e26278d9a4bfb8532eebdbb2888f112f7b0dbd57d51fa9b96513bd",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/45"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/tools/esx/ralph_stop.py",
+    "source": "/private/tmp/esx-autonomy-ml8axus5/kit/template/tools/esx/ralph_stop.py",
+    "before": "37bd48db586aa6c677dfb8c77b377a6d36276970203851c48e31311821ea9ea1",
+    "after": "d3ceb212d4e26278d9a4bfb8532eebdbb2888f112f7b0dbd57d51fa9b96513bd",
+    "backup": "/private/tmp/esx-autonomy-ml8axus5/before/46"
+  }
+]

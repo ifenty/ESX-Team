@@ -1,0 +1,34 @@
+# Communication and publication contract
+
+Arch owns external announcements. Bob and specialists report findings to Arch.
+SessionStart routes context, SubagentStop captures report JSON, and PostToolUse
+checks project records. These hooks never post or commit. The project ESX Stop
+hook re-injects the saved loop prompt within its finite budget. Internal role
+messages use the retained session adapter described in [execution.md](execution.md).
+Arch receives scope decisions and escalations; peers exchange bounded evidence
+directly through recorded sender and recipient identities.
+
+The project owner supplies provider, channel, audience and authorization. Record
+them in esx/project.json and the project profile. Existing applicable authorization
+persists; do not ask again merely because an iteration changed. A configuration
+field alone grants no permission. Use the esx-announce procedure when sending.
+
+Announce issue start, a separately filed finding, validated resolution or a warranted
+milestone/lesson. State the consequence, status and issue ID. Keep posts concise
+and link detailed evidence. Batch related lessons; keep unrelated issue IDs findable.
+
+Use `communication` with status pending/sent/unavailable/unauthorized/disabled,
+a detail, and the actual provider receipt for sent messages. Slack deployments may
+use returned `slack_ts` or `slack_error`. Never invent a success receipt. Delivery
+is best effort and does not replace project records or scientific acceptance.
+
+Validate closeout before announcing completion. Then save the delivery result,
+remove a superseded pending/error field, and rerun --check-done with the original
+iteration timestamp. History preserves Git and communication data when active
+files are replaced. No messages are sent by the verifier or history writer.
+
+Arch decides whether and when to commit within owner authorization. Every closeout
+records either a resolvable commit SHA or the reason the changes remain uncommitted.
+The gate checks commit existence; it does not prove the commit contains the complete
+reviewed change. The owner may require one scoped commit per accepted issue in the
+project profile. Preserve unrelated working changes and obey project commit style.

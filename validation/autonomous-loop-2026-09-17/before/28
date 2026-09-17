@@ -1,0 +1,18 @@
+---
+name: esx-announce
+description: Use when Arch has applicable authorization to announce a project event.
+---
+
+# esx-announce
+
+Read devel-loop/communication.md and esx/project.json. The configured channel and
+format are routing preferences; the current owner's authorization controls sending.
+Write and validate the underlying project record before announcing its result.
+
+Use the available authorized provider tool. Include the issue ID, scientific/user
+consequence and honest status in roughly 80 words; keep under 200. Avoid tables,
+large code blocks and internal hashes. Link the detailed project record when an
+accessible link exists. Save the actual returned receipt/link or a concrete delivery
+explanation. After a delivery change, refresh closeout history using --check-done.
+The skill never treats a configured channel as permission or a fabricated timestamp
+as evidence. A failed/unavailable post does not block scientific work.

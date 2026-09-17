@@ -1,0 +1,104 @@
+[
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/agents/scout.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/scout.md",
+    "before": "fae7dcd1f83444d5987a9e93cedd66ac6decc741fe4b2313a27942851e9f67af",
+    "after": "268b85b33fd16dfc01a87bbd6d3fdff96eed4d588b1ef0210bd57228fbaa7e2e"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/agents/scout.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/scout.md",
+    "before": "fae7dcd1f83444d5987a9e93cedd66ac6decc741fe4b2313a27942851e9f67af",
+    "after": "268b85b33fd16dfc01a87bbd6d3fdff96eed4d588b1ef0210bd57228fbaa7e2e"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/.claude/agents/scout.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/scout.md",
+    "before": "fae7dcd1f83444d5987a9e93cedd66ac6decc741fe4b2313a27942851e9f67af",
+    "after": "268b85b33fd16dfc01a87bbd6d3fdff96eed4d588b1ef0210bd57228fbaa7e2e"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/agents/prober.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/prober.md",
+    "before": "058038cd5451594f4c7ba5ba32f07b8de920f9dd1dd98e59b2c32468dd8bf5cf",
+    "after": "820b5978bd0a2365f97608d7616427609f797d0a828f2f250cbdf8ec3ce2f006"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/agents/prober.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/prober.md",
+    "before": "058038cd5451594f4c7ba5ba32f07b8de920f9dd1dd98e59b2c32468dd8bf5cf",
+    "after": "820b5978bd0a2365f97608d7616427609f797d0a828f2f250cbdf8ec3ce2f006"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/.claude/agents/prober.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/prober.md",
+    "before": "058038cd5451594f4c7ba5ba32f07b8de920f9dd1dd98e59b2c32468dd8bf5cf",
+    "after": "820b5978bd0a2365f97608d7616427609f797d0a828f2f250cbdf8ec3ce2f006"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/agents/bisector.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/bisector.md",
+    "before": "a02775e50b21040263aa5f7c3fc8329b2288f6a12e796799a485bde7b6b6e0f2",
+    "after": "c813b91a0144938cf06afcc42b57d2b24339979a9b2db88a761130f20b2df5f2"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/agents/bisector.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/bisector.md",
+    "before": "a02775e50b21040263aa5f7c3fc8329b2288f6a12e796799a485bde7b6b6e0f2",
+    "after": "c813b91a0144938cf06afcc42b57d2b24339979a9b2db88a761130f20b2df5f2"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/.claude/agents/bisector.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/bisector.md",
+    "before": "a02775e50b21040263aa5f7c3fc8329b2288f6a12e796799a485bde7b6b6e0f2",
+    "after": "c813b91a0144938cf06afcc42b57d2b24339979a9b2db88a761130f20b2df5f2"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/.claude/agents/auditor.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/auditor.md",
+    "before": "1c9b7db6107a40babbce8c427aba9e420216bd4dab52312f6bc5d064c882ed93",
+    "after": "e52da0ac3aa78f8225f21976c15ec03cba0e70825e72c913ec1ff2f53947da36"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/.claude/agents/auditor.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/auditor.md",
+    "before": "1c9b7db6107a40babbce8c427aba9e420216bd4dab52312f6bc5d064c882ed93",
+    "after": "e52da0ac3aa78f8225f21976c15ec03cba0e70825e72c913ec1ff2f53947da36"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/.claude/agents/auditor.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/.claude/agents/auditor.md",
+    "before": "1c9b7db6107a40babbce8c427aba9e420216bd4dab52312f6bc5d064c882ed93",
+    "after": "e52da0ac3aa78f8225f21976c15ec03cba0e70825e72c913ec1ff2f53947da36"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/template/devel-loop/issue_json_schema.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/devel-loop/issue_json_schema.md",
+    "before": "c9fb3acc126721072928c187dd83504a76021d47512043aa1c421be87401e617",
+    "after": "831a64b2b353ed09fa0b3ec8af8079ac9b02e7d0fab1586424b6b2a934ee8707"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/template/devel-loop/issue_json_schema.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/devel-loop/issue_json_schema.md",
+    "before": "c9fb3acc126721072928c187dd83504a76021d47512043aa1c421be87401e617",
+    "after": "831a64b2b353ed09fa0b3ec8af8079ac9b02e7d0fab1586424b6b2a934ee8707"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/devel-loop/issue_json_schema.md",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/template/devel-loop/issue_json_schema.md",
+    "before": "c9fb3acc126721072928c187dd83504a76021d47512043aa1c421be87401e617",
+    "after": "831a64b2b353ed09fa0b3ec8af8079ac9b02e7d0fab1586424b6b2a934ee8707"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/ESX-Team/tests/test_runtime.py",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/tests/test_runtime.py",
+    "before": "bf9b6d73823d095e63db3cdd9182de8a2dd9655f2c9ec548351f01a5d38a89e0",
+    "after": "b85502ecd804ccdac2f3d224bb23f1ee27f4440ce8b1b1f5e4f3417c48fcb6fc"
+  },
+  {
+    "target": "/Users/ifenty/ProjectsNotBox/1D_Mixing_Experiments/ESX-Team/tests/test_runtime.py",
+    "source": "/private/tmp/esx-specialist-footer-gvwdlm8b/kit/tests/test_runtime.py",
+    "before": "bf9b6d73823d095e63db3cdd9182de8a2dd9655f2c9ec548351f01a5d38a89e0",
+    "after": "b85502ecd804ccdac2f3d224bb23f1ee27f4440ce8b1b1f5e4f3417c48fcb6fc"
+  }
+]

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "project_id": "DIFFUSION",
+  "project_name": "Periodic tracer diffusion qualification",
+  "mission": "Verify a conservative periodic diffusion step against a discrete Fourier solution.",
+  "source_paths": [
+    "src"
+  ],
+  "test_paths": [
+    "tests"
+  ],
+  "configuration_paths": [],
+  "output_paths": [
+    "results",
+    "figures"
+  ],
+  "external_inputs": [],
+  "environment_variables": [
+    "PATH",
+    "CONDA_PREFIX",
+    "OMP_NUM_THREADS",
+    "LANG",
+    "LC_ALL",
+    "PYTHONOPTIMIZE"
+  ],
+  "toolchain_commands": [
+    [
+      "{python}",
+      "--version"
+    ]
+  ],
+  "command_timeout_seconds": 3600,
+  "verification": {
+    "structural": [
+      [
+        "{python}",
+        "tools/esx/audit.py"
+      ]
+    ],
+    "focused": [
+      [
+        "{python}",
+        "tests/check_diffusion.py"
+      ]
+    ],
+    "scientific": [
+      [
+        "{python}",
+        "tests/check_diffusion.py"
+      ]
+    ]
+  },
+  "communication": {
+    "provider": "disabled",
+    "channel": "",
+    "message_prefix": "",
+    "authorization_reference": ""
+  },
+  "commit_policy": {
+    "mode": "owner_authorization",
+    "authorization_reference": ""
+  }
+}
