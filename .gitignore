@@ -1,0 +1,23 @@
+*.pdf
+*.bin
+*.pyc
+main/__pycache__
+.DS_Store
+.test_logs
+*.pyc
+__pycache__/
+
+# Generated logs from builds, probes, and verification runs.
+*.log
+
+# Generated build and flow artifacts. Source directories such as
+# main/tests/flow_determinism/ do not match these directory patterns.
+**/build_*/
+**/build_*
+**/flow/
+**/flow_gen_*/
+**/build_prefix.log
+
+.claude/settings.local.json
+
+.harness_cache/
