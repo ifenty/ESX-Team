@@ -96,7 +96,16 @@ A candidate binds the original maintenance baseline; retain it in the review
 packet's `candidate` field. Science datasets outside inventory need explicit
 configured input provenance and their own scientific qualification.
 
-Create a selection JSON file containing exact completion identities, for example:
+**First, list every dispatch already recorded for this issue** — do not hand-search
+`dispatch_log.jsonl`, which risks missing a real, already-completed review and
+redispatching a fresh identity to redo work that already exists:
+
+```sh
+python3 tools/esx/workflow_records.py selections --start devel-loop/loop_state/issue-start.json
+```
+
+Build the selection JSON file from that output's exact `agent`, `dispatch_id`,
+`dispatch_event_id` and `correction_round` fields — for example:
 
 ```json
 [{"agent":"bob","dispatch_id":"ACTUAL_ID","dispatch_event_id":"ACTUAL_EVENT","correction_round":0}]
@@ -132,3 +141,11 @@ and orchestration delays separately when evaluating actual issue throughput.
 Follow [Evidence handoff and recovery](recovery.md) for explicit packet assembly,
 readiness diagnostics, failed-attempt history, assessed session transitions and
 reuse of a measured scientific execution with fresh acceptance.
+
+## Shared limits and generated briefs
+
+[Bounded operations](team_operations.md) supplies the metered coordinator, shared
+run/issue/turn budgets, generated role briefs, typed handoffs and continuation
+receipts. Run structural verification before paid review. Use `brief.py` with the
+actual design and review question. CLI status is completed only after early footer
+validation; incomplete reports remain explicit and use retained correction turns.

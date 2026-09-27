@@ -1,0 +1,182 @@
+{
+  "protocol": "offline disposable periodic diffusion project; native dispatches simulated; scientific commands actually executed",
+  "complete_fixture_seconds": 2.157729541999288,
+  "fresh_structural_seconds": 0.19707566709257662,
+  "cached_structural_seconds": [
+    0.031024917028844357,
+    0.029126834007911384,
+    0.0315564590273425,
+    0.0296167500782758,
+    0.03252291597891599
+  ],
+  "cached_structural_median_seconds": 0.031024917028844357,
+  "final_reuse_seconds": [
+    0.5194789170054719,
+    0.5678637910168618,
+    0.5506210420280695,
+    0.5743312500417233,
+    0.5552579159848392
+  ],
+  "final_reuse_median_seconds": 0.5552579159848392,
+  "executed_verification_receipts": {
+    "focused": 1,
+    "structural": 2,
+    "scientific": 1
+  },
+  "administrative_signature_preserved": true,
+  "exact_documentation_seal_preserved": true,
+  "accepted_retrospectives": 1,
+  "accounting": {
+    "schema_version": 2,
+    "issue_id": null,
+    "start": null,
+    "end": null,
+    "span_seconds": null,
+    "child_elapsed_seconds": 0,
+    "outside_child_intervals_seconds": null,
+    "by_role": {
+      "bob": {
+        "dispatches": 1,
+        "rounds": 1,
+        "seconds": 0.0,
+        "reported_usd": 0.0,
+        "unknown_cost_events": 1,
+        "tool_calls": 0,
+        "unknown_tool_call_events": 1,
+        "usage": {}
+      },
+      "richard": {
+        "dispatches": 1,
+        "rounds": 1,
+        "seconds": 0.0,
+        "reported_usd": 0.0,
+        "unknown_cost_events": 1,
+        "tool_calls": 0,
+        "unknown_tool_call_events": 1,
+        "usage": {}
+      }
+    },
+    "reported_usd": 0,
+    "unknown_cost_event_ids": [
+      "ce610df83c2a4805a2650525efc03865",
+      "cb5111e3e9bd414997d60a70b787197e"
+    ],
+    "coordinator_coverage": "missing",
+    "billing_status": "provider_reported_not_invoice_reconciled",
+    "missing_timing_event_ids": [
+      "ce610df83c2a4805a2650525efc03865",
+      "cb5111e3e9bd414997d60a70b787197e"
+    ],
+    "by_phase": {
+      "orientation": {
+        "elapsed_seconds": 0.031036853790283203,
+        "effort_seconds": 0.031036853790283203,
+        "events": 3
+      },
+      "verification": {
+        "elapsed_seconds": 0.5915637016296387,
+        "effort_seconds": 0.5915637016296387,
+        "events": 4
+      },
+      "closeout": {
+        "elapsed_seconds": 0.5948238372802734,
+        "effort_seconds": 0.5948238372802734,
+        "events": 1
+      }
+    },
+    "phase_events": [
+      {
+        "event_id": "4b29f3497e9945b9a926a5e93b388618",
+        "issue_id": "SAMPLE-001",
+        "phase": "orientation",
+        "started_at": "2026-09-25T13:48:06.176095+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:06.186339+00:00",
+        "seconds": 0.010247666970826685
+      },
+      {
+        "event_id": "5fc2b7fbb72a4c26948e029b560ff8ec",
+        "issue_id": "SAMPLE-001",
+        "phase": "orientation",
+        "started_at": "2026-09-25T13:48:06.556396+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:06.567381+00:00",
+        "seconds": 0.01098133297637105
+      },
+      {
+        "event_id": "de38bb71cc8844229c7051a597ef29ad",
+        "issue_id": "SAMPLE-001",
+        "phase": "orientation",
+        "started_at": "2026-09-25T13:48:06.573649+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:06.583457+00:00",
+        "seconds": 0.009808292030356824
+      },
+      {
+        "event_id": "b700db3ffca54a96bcbfc3c68e6350ae",
+        "issue_id": "SAMPLE-001",
+        "phase": "verification",
+        "started_at": "2026-09-25T13:48:06.584011+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:06.709507+00:00",
+        "seconds": 0.12549504195339978
+      },
+      {
+        "event_id": "80323bff0bd54b4da52edd41db274607",
+        "issue_id": "SAMPLE-001",
+        "phase": "verification",
+        "started_at": "2026-09-25T13:48:06.746306+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:06.942319+00:00",
+        "seconds": 0.19601070799399167
+      },
+      {
+        "event_id": "c492fb865c5f40959ecc87044c45b12c",
+        "issue_id": "SAMPLE-001",
+        "phase": "verification",
+        "started_at": "2026-09-25T13:48:07.770764+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:07.844599+00:00",
+        "seconds": 0.07383154204580933
+      },
+      {
+        "event_id": "45fa49330bdc422c810e176f745a9013",
+        "issue_id": "SAMPLE-001",
+        "phase": "verification",
+        "started_at": "2026-09-25T13:48:11.105487+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:11.301707+00:00",
+        "seconds": 0.1962165420409292
+      },
+      {
+        "event_id": "166e28236fe54ed4a8aa008817314305",
+        "issue_id": "SAMPLE-001",
+        "phase": "closeout",
+        "started_at": "2026-09-25T13:48:11.456020+00:00",
+        "reason": null,
+        "finished_at": "2026-09-25T13:48:12.050844+00:00",
+        "seconds": 0.5948152500204742
+      }
+    ],
+    "components": [
+      {
+        "event_id": "ce610df83c2a4805a2650525efc03865",
+        "parent_event_id": "ce610df83c2a4805a2650525efc03865",
+        "role": "bob",
+        "kind": "unmetered_native",
+        "reported_usd": null,
+        "source": "devel-loop/loop_state/dispatch_log.jsonl"
+      },
+      {
+        "event_id": "cb5111e3e9bd414997d60a70b787197e",
+        "parent_event_id": "cb5111e3e9bd414997d60a70b787197e",
+        "role": "richard",
+        "kind": "unmetered_native",
+        "reported_usd": null,
+        "source": "devel-loop/loop_state/dispatch_log.jsonl"
+      }
+    ]
+  },
+  "additional_paid_provider_calls": 0,
+  "limits": "Measures wrapper reuse, not live model reasoning, production throughput or invoice savings."
+}

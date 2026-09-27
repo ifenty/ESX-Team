@@ -26,10 +26,39 @@ def audit_code_map(root):
     return {'findings': findings}
 
 
+def audit_mirrors(root, cfg):
+    """Flag a mirror whose bytes have drifted from its configured canonical source.
+
+    Some build/compile steps need their own local copy of shared source
+    because no import mechanism is available at that layer (e.g. per-experiment
+    Fortran instrumentation copied into several build directories). A mirror
+    silently going stale relative to its canonical source is real, previously
+    invisible data-corruption risk, not merely untidiness -- this is a
+    generalization of a stale-Fortran-instrumentation bug found in a real
+    project (see self-improvement/improvements_2026-09-23_from_1D_Mixing_Experiment.md).
+    """
+    findings = []
+    for entry in cfg.get('mirrored_paths', []):
+        canonical_path = local(root, entry['canonical'])
+        if not canonical_path.is_file():
+            findings.append(f"mirrored_paths: canonical file missing: {entry['canonical']}")
+            continue
+        canonical_bytes = canonical_path.read_bytes()
+        for mirror in entry['mirrors']:
+            mirror_path = local(root, mirror)
+            if not mirror_path.exists():
+                findings.append(f"{mirror}: missing entirely (should mirror {entry['canonical']})")
+            elif mirror_path.read_bytes() != canonical_bytes:
+                findings.append(f"{mirror}: drifted from canonical source {entry['canonical']}")
+    return {'findings': findings}
+
+
 def audit_instructions(root, files=None):
     from doc_inventory import markdown_sections
+    from project import administrative
     names = files or [p.relative_to(root).as_posix() for folder in ('.claude', 'devel-loop', 'docs', 'esx')
-                      for p in (root / folder).rglob('*.md') if 'loop_state' not in p.parts and not mutable_loop_path(p.relative_to(root).as_posix())]
+                      for p in (root / folder).rglob('*.md') if 'loop_state' not in p.parts and not mutable_loop_path(p.relative_to(root).as_posix())
+                      and not administrative(p.relative_to(root).as_posix())]
     if files is None:
         names.append('CLAUDE.md')
     findings = []
@@ -47,13 +76,20 @@ def audit_instructions(root, files=None):
     return {'findings': findings}
 
 
-def check(root):
-    config(root)
-    validate_records(root)
+def check(root, overrides=None):
+    cfg = config(root)
+    validate_records(root, overrides)
+    import self_improvement
+    if (root / self_improvement.OPEN).exists():
+        errors = self_improvement.validate(root, overrides)
+        require(not errors, '; '.join(errors))
     for name in ('project.py', 'loop_gate.py', 'verify.py', 'records.py', 'hooks.py',
                  'audit.py', 'doc_inventory.py', 'doc_contract.py', 'workflow_policy.py', 'orient.py',
                  'agent_runtime.py', 'notifications.py', 'ralph_stop.py', 'loop_control.py', 'check_ralph_hook.py',
-                 'issue_candidates.py', 'workflow_records.py', 'final_verification.py'):
+                 'issue_candidates.py', 'workflow_records.py', 'final_verification.py',
+                 'team_accounting.py', 'team_budget.py', 'team_retrospective.py', 'self_improvement.py',
+                 'loop_iteration.py', 'ledger_transaction.py', 'process_evidence.py', 'brief.py',
+                 'footer_contract.py', 'bounded_command.py', 'runtime_tool_hook.py', 'team_driver.py', 'loop_lifecycle.py'):
         require(local(root, 'tools/esx/' + name).is_file(), f'missing framework utility: {name}')
     require(local(root, '.claude/commands/esx-loop.md').is_file(), 'missing /esx-loop command')
     require(local(root, 'devel-loop/autonomous_prompt.md').is_file(), 'missing autonomous loop prompt')
@@ -74,7 +110,7 @@ def check(root):
         require(len(matches) == 1, f'{event}: install exactly one ESX {marker} hook')
     from check_ralph_hook import check as check_stop
     check_stop(root)
-    findings = audit_code_map(root)['findings'] + audit_instructions(root)['findings']
+    findings = audit_code_map(root)['findings'] + audit_instructions(root)['findings'] + audit_mirrors(root, cfg)['findings']
     require(not findings, '\n'.join(findings))
     return {'status': 'PASS', 'roles': 6, 'map_and_links': 'checked', 'records': 'checked'}
 

@@ -23,6 +23,7 @@ class AutonomousTests(unittest.TestCase):
     setUp = fixtures.FrameworkTests.setUp
     write_issue = fixtures.FrameworkTests.write_issue
     prepare = fixtures.FrameworkTests.prepare
+    reflect = fixtures.FrameworkTests.reflect
 
     def enable(self):
         p = self.root / 'esx/project.json'

@@ -26,8 +26,25 @@ def fingerprint(root, suite, commands):
                    'commands': commands, 'environment': environment(root, cfg), 'suite': suite})
 
 
+def structural_evidence(root):
+    """Read current complete structural PASS without executing another suite."""
+    commands = config(root)['verification']['structural']
+    ref = json_file(root, f'{STATE}/verification/cache-{digest(["structural", commands])}.json')
+    evidence = load_evidence(root, ref)
+    require(evidence['suite'] == 'structural' and evidence['commands'] == commands,
+            'structural receipt must cover the complete configured suite')
+    return ref
+
+
 def load_evidence(root, ref):
-    require(isinstance(ref, dict), 'verification reference is required')
+    import self_improvement
+    if (Path(root) / self_improvement.OPEN).exists():
+        errors = self_improvement.validate(root)
+        require(not errors, '; '.join(errors))
+    require(isinstance(ref, dict) and ref.get('path') and ref.get('sha256'),
+            "verification reference is required -- a plain command (e.g. bare pytest) has no evidence file of its "
+            "own; run it through verify.py (e.g. 'verify.py --suite focused --owner <id> --fresh') and cite that "
+            "command's own returned evidence reference instead")
     sha = ref.get('sha256')
     require(ref.get('path') == f'{STATE}/verification/{sha}.json', 'invalid verification artifact path')
     record = json_file(root, ref['path'])
@@ -42,6 +59,12 @@ def load_evidence(root, ref):
 
 def run(root, suite, owner, fresh=False, override=None, _lease=None):
     """Serialize matching suites; independent fresh runs execute after acquiring the lock."""
+    import team_accounting
+    if suite == 'structural':
+        import self_improvement
+        if (Path(root) / self_improvement.OPEN).exists():
+            errors = self_improvement.validate(root)
+            require(not errors, '; '.join(errors))
     if suite == 'scientific':
         import final_verification
         final_verification.authorize(root, _lease)
@@ -51,7 +74,10 @@ def run(root, suite, owner, fresh=False, override=None, _lease=None):
         fcntl.flock(stream, fcntl.LOCK_EX)
         if suite == 'scientific':
             final_verification.authorize(root, _lease)
-        return _run(root, suite, owner, fresh, override)
+        active = local(root, f'{STATE}/issue-start.json')
+        issue = json.loads(active.read_text()).get('id') if active.exists() else None
+        with team_accounting.phase(root, issue, 'verification'):
+            return _run(root, suite, owner, fresh, override)
 
 
 def _run(root, suite, owner, fresh, override):
@@ -118,7 +144,7 @@ def execute(argv, root, stream, timeout):
     def interrupt(signum, frame):
         raise InterruptedError(f'verification received signal {signum}')
     if threading.current_thread() is threading.main_thread():
-        for sig in (signal.SIGTERM, signal.SIGHUP):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             previous[sig] = signal.signal(sig, interrupt)
     try:
         return process.wait(timeout=timeout)

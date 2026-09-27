@@ -91,3 +91,15 @@ Accepted keys are `action`, `project`, `apply`, plus `config` for installation o
 file summary, then repeat with `apply: true`. They must not edit the manifest,
 objects or version to bypass a refusal. A runtime-contract change can require the
 project's documented retained-session transition process after upgrade.
+
+## Upgrading to 1.1.0
+
+Preview the normal three-way upgrade from the single master. Complete an in-flight
+legacy iteration with its original identity; new preparation emits state_version 2
+and requires a successful --check-start receipt. Do not fabricate receipts for old
+iterations. The latest closeout may require a retrospective before further work.
+
+Process open/closed ledgers, generated process changelog, migration manifest,
+standing rules and project assessment/original-record archives are project-owned.
+Incoming blank forms initialize absent files; existing content remains unchanged.
+Executable process helpers and normative contracts remain framework-owned.

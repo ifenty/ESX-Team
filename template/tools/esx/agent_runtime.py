@@ -33,8 +33,17 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import uuid
 import runtime_recovery
+import team_accounting
+import team_budget
+import team_retrospective
+import footer_contract
+import shlex
+
+TOOL_CALL_TIMEOUT_S = 600
+WATCHDOG_POLL_S = 0.1
 from project import local
 
 
@@ -184,7 +193,9 @@ def runtime_contract(root, executable="claude", role=None):
         for skill in fields["skills"].split(","):
             if skill.strip():
                 paths.append(root / ".claude/skills" / skill.strip() / "SKILL.md")
-    paths += [Path(runtime_recovery.__file__).resolve(), root / "devel-loop/recovery.md"]
+    paths += [Path(runtime_recovery.__file__).resolve(), root / "devel-loop/recovery.md", root / 'esx/templates/agent_report.json']
+    paths += [Path(__file__).with_name(name + '.py') for name in
+              ('team_accounting', 'team_budget', 'team_retrospective', 'footer_contract', 'runtime_tool_hook', 'bounded_command')]
     registry = config_dir / "plugins/installed_plugins.json"
     paths.append(registry)
     if registry.is_file():
@@ -295,6 +306,14 @@ def review_context(root, packet, issue, baseline=None):
     """
     import doc_contract as maintenance
     import issue_candidates
+    active_path = root / 'devel-loop/loop_state/issue-start.json'
+    active = json.loads(active_path.read_text()) if active_path.is_file() else {}
+    if active.get('state_version', 1) >= 2:
+        import verify
+        try:
+            verify.structural_evidence(root)
+        except (ValueError, OSError, KeyError) as exc:
+            raise ValueError('STRUCTURAL_STALE_OR_FAILING: run verify.py --suite structural --owner arch before paid review: ' + str(exc)) from exc
     if not isinstance(packet, dict) or packet.get("id") != issue:
         raise ValueError("review packet must name the assigned issue")
     state = packet.get("maintenance")
@@ -318,9 +337,146 @@ def review_context(root, packet, issue, baseline=None):
             **({"subagents": packet["subagents"]} if "subagents" in packet else {})}
 
 
+def _read_tool_events(path, offset, remainder, open_tools):
+    """Tail complete stream rows and update active tool-use state."""
+    if not Path(path).exists():
+        return offset, remainder
+    with Path(path).open("rb") as handle:
+        handle.seek(offset)
+        data = handle.read()
+        offset = handle.tell()
+    if not data:
+        return offset, remainder
+    text = remainder + data.decode(errors="replace")
+    rows = text.splitlines(keepends=True)
+    if rows and not rows[-1].endswith(("\n", "\r")):
+        remainder = rows.pop()
+    else:
+        remainder = ""
+    for row in rows:
+        try:
+            event = json.loads(row)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        content = event.get("message", {}).get("content", [])
+        if event.get("type") == "assistant":
+            for item in content if isinstance(content, list) else []:
+                if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("id"):
+                    open_tools.setdefault(item["id"], {"name": item.get("name"), "start": time.monotonic(),
+                                                       "handled": False})
+        elif event.get("type") == "user":
+            for item in content if isinstance(content, list) else []:
+                if isinstance(item, dict) and item.get("type") == "tool_result":
+                    open_tools.pop(item.get("tool_use_id"), None)
+    return offset, remainder
+
+
+def _check_watchdog(proc, stdout_path, offset, remainder, open_tools, watchdog_kills, tool_timeout):
+    offset, remainder = _read_tool_events(stdout_path, offset, remainder, open_tools)
+    if tool_timeout and tool_timeout > 0:
+        current = time.monotonic()
+        for tool_id, info in list(open_tools.items()):
+            if info.get("handled"):
+                continue
+            elapsed = current - info["start"]
+            if elapsed >= tool_timeout:
+                from bounded_command import receipt_path, terminate_group
+                receipt = receipt_path(Path(stdout_path).parent, tool_id)
+                if not receipt.exists():
+                    # Never kill arbitrary concurrent tools when identity is unknown.
+                    raise subprocess.TimeoutExpired('unmapped tool ' + tool_id, tool_timeout)
+                owner = json.loads(receipt.read_text())
+                killed = []
+                if owner.get('status') == 'running' and owner.get('tool_use_id') == tool_id:
+                    terminate_group(owner['pgid'])
+                    killed = [owner['pgid']]
+                info["handled"] = True
+                watchdog_kills.append({"tool_use_id": tool_id, "name": info.get("name"),
+                                       "elapsed_s": elapsed, "killed_pids": killed, "ts": now()})
+    return offset, remainder
+
+
+def _execute(root, folder, state, command, prompt, timeout, tool_timeout, stdout_name="stdout.jsonl"):
+    """Launch the retained CLI turn, enforce total and per-tool timeouts, parse output."""
+    stdout_path = folder / stdout_name
+    error, code, proc = None, None, None
+    watchdog_kills, open_tools = [], {}
+    offset, remainder = 0, ""
+    with stdout_path.open("w") as stdout, (folder / "stderr.txt").open("a") as stderr:
+        try:
+            child_env = os.environ.copy()
+            # This is an intentionally independent, retained CLI session.
+            # Preserve authentication and permissions; remove the nesting sentinel.
+            child_env.pop("CLAUDECODE", None)
+            child_env["ESX_AGENT_RUNTIME_CHILD"] = "1"
+            child_env["CLAUDE_PROJECT_DIR"] = str(root)
+            if (folder / 'runtime_context.json').exists():
+                child_env['ESX_RUNTIME_CONTEXT'] = str(folder / 'runtime_context.json')
+            proc = subprocess.Popen(command, cwd=root, stdin=subprocess.PIPE,
+                                    stdout=stdout, stderr=stderr, text=True,
+                                    start_new_session=True, env=child_env)
+            def feed_prompt():
+                # A provider that never reads stdin must still hit its timeout.
+                try:
+                    proc.stdin.write(prompt)
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
+            writer = threading.Thread(target=feed_prompt, daemon=True)
+            writer.start()
+            deadline = time.monotonic() + timeout if timeout is not None else None
+            while True:
+                offset, remainder = _check_watchdog(proc, stdout_path, offset, remainder,
+                                                    open_tools, watchdog_kills, tool_timeout)
+                code = proc.poll()
+                if code is not None:
+                    offset, remainder = _check_watchdog(proc, stdout_path, offset, remainder,
+                                                        open_tools, watchdog_kills, tool_timeout)
+                    break
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(command, timeout)
+                    sleep_for = min(WATCHDOG_POLL_S, remaining)
+                else:
+                    sleep_for = WATCHDOG_POLL_S
+                time.sleep(sleep_for)
+            code = proc.returncode
+        except OSError as exc:
+            error = "launch failed: " + str(exc)
+            if proc is not None and proc.poll() is None:
+                from bounded_command import terminate_group
+                terminate_group(proc.pid, proc)
+                proc.wait()
+                code = proc.returncode
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            error = "timeout" if isinstance(exc, subprocess.TimeoutExpired) else "interrupted"
+            if proc is not None:
+                from bounded_command import terminate_group
+                terminate_group(proc.pid, proc)
+                proc.wait()
+                code = proc.returncode
+        finally:
+            if proc is not None:
+                from bounded_command import terminate_group
+                terminate_group(proc.pid, proc)
+                proc.wait()
+                if 'writer' in locals():
+                    writer.join(timeout=1)
+    result, message, init = parse_stream(stdout_path)
+    return result, message, init, code, error, watchdog_kills
+
+
+
 def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_round=0,
              executable="claude", timeout=1800, probe=False, from_session=None,
-             replaces_agent=None, replacement_reason=None, progress=None, review_packet=None, transition=None):
+             replaces_agent=None, replacement_reason=None, progress=None, review_packet=None, transition=None, tool_timeout=600, turn_calls=60):
     """Execute one retained turn, recording failures before returning non-success."""
     root = Path(root).resolve()
     resumed = session is not None
@@ -352,6 +508,10 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             sender = json.loads(sender_path.read_text())
             if sender["issue_id"] != issue:
                 raise ValueError("peer message must stay within the assigned issue")
+        if not probe:
+            team_retrospective.require_clear(root)
+            team_retrospective.require_followup(root, issue)
+        issue_budget, run_budget = team_budget.assignment(root, issue)
         source_signature = None
         if (root / "esx/project.json").is_file():
             from project import source_signature as measure_source
@@ -359,7 +519,14 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
         start_path = root / "devel-loop/loop_state/issue-start.json"
         active = json.loads(start_path.read_text()) if start_path.is_file() and not probe else {}
         if active and active.get("id") != issue:
-            raise ValueError("active iteration belongs to a different issue")
+            import loop_iteration
+            import self_improvement
+            history = team_accounting.rows(root / team_accounting.STATE / 'loop_history.jsonl')
+            process_owners = {row.uuid for row in self_improvement.parse(root / self_improvement.OPEN)}
+            if loop_iteration.finished(active, history) and issue in process_owners:
+                active = {}  # bounded process follow-up after the scientific closeout
+            else:
+                raise ValueError("active iteration belongs to a different issue")
         iteration_timestamp = active.get("timestamp")
         packet = review_packet if review_packet is not None else state.get("review_packet")
         review = None
@@ -368,11 +535,21 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                 raise ValueError("Richard review requires --review-packet with candidate and sealed documentation")
             if packet is not None:
                 review = review_context(root, packet, issue, (active.get("maintenance") or {}).get("baseline"))
+        if not probe and active.get('state_version', 1) >= 2:
+            import loop_iteration
+            if not loop_iteration.start_status(root, active)['validated']:
+                raise ValueError('successful --check-start required before dispatch')
         contract = runtime_contract(root, executable, None if probe else role)
         transition_result = runtime_recovery.compatibility(root, state, contract, transition) if resumed else None
         event_id = uuid.uuid4().hex
         turn = folder / "turns" / event_id
         turn.mkdir(parents=True)
+        reservation = team_budget.reserve(root, event_id, issue or 'RUNTIME-PROBE-001', issue_budget,
+            run=run_budget.get('id'), run_budget=run_budget.get('limits'), correction=correction_round,
+            turn_seconds=timeout, turn_calls=turn_calls)
+        timeout = min(timeout, max(.01, reservation['deadline'] - time.time()))
+        atomic_json(turn / 'runtime_context.json', {'root': str(root), 'folder': str(turn),
+                    'event_id': event_id, 'tool_timeout': tool_timeout})
         command = [contract["binary"], "--print", "--output-format", "stream-json", "--verbose"]
         if probe:
             command += ["--permission-mode", "dontAsk", "--tools", "", "--setting-sources", "user",
@@ -404,6 +581,13 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
         if transition_result and transition_result["classification"] == "assessed":
             prompt = "Assessed runtime transition for this retained session. Read changed instruction files before acting: " + json.dumps(transition_result) + "\n" + prompt
         (turn / "prompt.txt").write_text(prompt)
+        command += ['--max-budget-usd', str(reservation['reserved_usd'])]
+        if not probe:
+            index = command.index('--settings') + 1
+            settings = json.loads(command[index])
+            settings['hooks'] = {'PreToolUse': [{'matcher': '.*', 'hooks': [{'type': 'command',
+                'command': shlex.join([sys.executable, str(Path(__file__).with_name('runtime_tool_hook.py'))]), 'timeout': 10}]}]}
+            command[index] = json.dumps(settings)
         command += ["--resume" if resumed else "--session-id", session]
         atomic_json(turn / "invocation.json", {"argv": command, "cwd": str(root),
                     "runtime": contract, "prompt": reference(turn / "prompt.txt", root)})
@@ -415,32 +599,18 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             progress({"status": "running", "session_id": session, "event_id": event_id,
                       "role": role, "issue_id": issue})
         started = time.monotonic()
-        error, code = None, None
-        with (turn / "stdout.jsonl").open("w") as stdout, (turn / "stderr.txt").open("w") as stderr:
-            try:
-                child_env = os.environ.copy()
-                # This is an intentionally independent, retained CLI session.
-                # Preserve authentication and permissions; remove the nesting sentinel.
-                child_env.pop("CLAUDECODE", None)
-                child_env["ESX_AGENT_RUNTIME_CHILD"] = "1"
-                child_env["CLAUDE_PROJECT_DIR"] = str(root)
-                proc = subprocess.Popen(command, cwd=root, stdin=subprocess.PIPE,
-                                        stdout=stdout, stderr=stderr, text=True,
-                                        start_new_session=True, env=child_env)
-                proc.communicate(prompt, timeout=timeout)
-                code = proc.returncode
-            except OSError as exc:
-                error = "launch failed: " + str(exc)
-            except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
-                error = "timeout" if isinstance(exc, subprocess.TimeoutExpired) else "interrupted"
-                os.killpg(proc.pid, signal.SIGTERM)
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait()
-                code = proc.returncode
-        result, message, init = parse_stream(turn / "stdout.jsonl")
+        with team_accounting.phase(root, issue, 'review' if role == 'richard' else 'implementation'):
+            result, message, init, code, error, watchdog_kills = _execute(
+                root, turn, state, command, prompt, timeout, tool_timeout)
+        usage = team_accounting.stream_usage(turn / 'stdout.jsonl')
+        if code is None:
+            usage['cost_usd'] = 0
+        if usage.get('cost_usd') is not None and not team_accounting.number(usage['cost_usd']):
+            error = 'invalid provider cost; full reservation retained'
+            usage['cost_usd'] = None
+        settlement = team_budget.settle(root, event_id, usage.get('cost_usd'))
+        if settlement.get('provider_overshoot'):
+            error = 'provider exceeded reservation; further launches are blocked'
         footer = footer_from(message)
         status = "completed"
         if error or code != 0 or not result or result.get("is_error"):
@@ -454,6 +624,10 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
               or footer.get("correction_round") != correction_round
               or (iteration_timestamp and footer.get("iteration_timestamp") != iteration_timestamp)):
             status, error = "incomplete", "missing, malformed, or mismatched report footer"
+        if status == 'completed' and not probe:
+            errors = footer_contract.validate(root, role, footer, issue, correction_round, active, session)
+            if errors:
+                status, error = 'incomplete', '; '.join(errors)
         (turn / "report.md").write_text(message)
         record = {"event_id": event_id, "ts": now(), "runtime": "claude_cli_session",
                   "agent_type": role, "agent_id": session, "session_id": session,
@@ -477,7 +651,13 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                   "transcript": str(turn / "stdout.jsonl"),
                   "stderr": reference(turn / "stderr.txt", root),
                   "usage": (result or {}).get("usage"),
-                  "cost_usd": (result or {}).get("total_cost_usd")}
+                  "cost_usd": usage.get('cost_usd'), 'budget': reservation,
+                  'accounting_components': [dict(usage, event_id=event_id, kind='turn')],
+                  'tool_watchdog_kills': watchdog_kills}
+        atomic_json(turn / 'handoff.json', footer_contract.handoff(record))
+        record['handoff'] = reference(turn / 'handoff.json', root)
+        if status != 'completed':
+            atomic_json(turn / 'partial.json', {'status': status, 'error': error, 'handoff': record['handoff']})
         atomic_json(turn / "record.json", record)
         append_record(root, record)
         state["turns"].append(event_id)
@@ -602,6 +782,9 @@ def main(argv=None):
     assess = sub.add_parser("assess-transition")
     assess.add_argument("--session", required=True)
     assess.add_argument("--judgment", type=Path, required=True)
+    for command_parser in (start, follow):
+        command_parser.add_argument('--tool-timeout', type=float, default=600)
+        command_parser.add_argument('--max-tool-calls', type=int, default=60)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:
@@ -630,6 +813,7 @@ def main(argv=None):
         else:
             kwargs = {"prompt": (args.prompt_file if args.prompt_file.is_absolute() else root / args.prompt_file).read_text(), "executable": args.claude,
                       "timeout": args.timeout, "correction_round": args.correction_round,
+                      "tool_timeout": args.tool_timeout, "turn_calls": args.max_tool_calls,
                       "progress": lambda value: print(json.dumps(value), file=sys.stderr, flush=True)}
             if args.review_packet is not None:
                 path = args.review_packet if args.review_packet.is_absolute() else root / args.review_packet

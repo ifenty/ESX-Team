@@ -9,6 +9,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ import records
 import verify
 import final_verification
 import issue_candidates
+import team_retrospective
+import notifications
 
 
 class FrameworkTests(unittest.TestCase):
@@ -54,13 +57,22 @@ class FrameworkTests(unittest.TestCase):
 **Anchors**: src/diffusion.py::step; tests/check_diffusion.py::<module>
 ''')
 
+    def reflect(self):
+        if team_retrospective.pending(self.root):
+            draft = team_retrospective.draft(self.root)
+            draft['no_problem_reason'] = 'This disposable test records its measured process evidence; provider costs are unknown for simulated native dispatches and no live efficiency claim is made.'
+            team_retrospective.accept(self.root, draft)
+
     def prepare(self, kind='scientific_change', risks=()):
+        self.reflect()
         self.write_issue()
         self.gate = loop_gate.Gate(self.root)
         with contextlib.redirect_stderr(io.StringIO()):
             self.start = self.gate.prepare(self.issue, kind, risks, 'arch', 'Qualify the periodic boundary update.',
                                            'docs/code_map.md#pipeline', ['src/diffusion.py::step', 'tests/check_diffusion.py::<module>'],
                                            ['docs/model_contract.md'], 'Trace the periodic update into its Fourier and conservation oracle before evaluating acceptance.')
+        if not notifications.pending(self.root):
+            self.gate.check_start()
         return self.start
 
     def complete(self, risks=(), qualify=True):
@@ -71,7 +83,7 @@ class FrameworkTests(unittest.TestCase):
         plan['map_delta'] = {'status': 'MAP-OK', 'reason': 'This qualification leaves the mapped periodic update and its independent oracle routes unchanged.',
                              'references': ['docs/code_map.md#pipeline']}
         report = maintenance.seal(self.root, plan)
-        done = {'id': self.issue, 'timestamp': self.start['timestamp'], 'outcome': 'completed', 'summary': 'Qualified the synthetic stencil.',
+        done = {'state_version': self.start['state_version'], 'iteration': self.start['iteration'], 'id': self.issue, 'timestamp': self.start['timestamp'], 'outcome': 'completed', 'summary': 'Qualified the synthetic stencil.',
                 'workflow': self.start['workflow'], 'scope_decisions': [], 'lessons': [],
                 'git': {'committed': False, 'reason': 'This disposable qualification task does not create commits.'},
                 'communication': {'status': 'disabled', 'detail': 'Synthetic tests do not send external messages.'},
@@ -183,7 +195,8 @@ class FrameworkTests(unittest.TestCase):
         run = subprocess.run([sys.executable, '-B', str(self.root / 'tools/esx/loop_gate.py'), '--check-done'],
                              cwd=self.root.parent, capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(json.loads(run.stdout)['outcome'], 'completed')
+        done = json.loads(run.stdout)
+        self.assertEqual(done['outcome'], 'completed')
         self.assertEqual(self.gate.check_done()['outcome'], 'completed')
         self.assertFalse(records.save_history(self.root, done))
         done['slack_ts'] = '1789344000.123456'
@@ -227,6 +240,42 @@ class FrameworkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'documentation evidence reference'):
             self.gate.check_done()
 
+    def test_documentation_review_status_synonym_is_rejected_with_a_precise_message(self):
+        # Fix 3c (2026-09-23 self-improvement): 'sealed' describes the report's
+        # own state; the gate requires the literal 'confirmed' -- Richard's own
+        # act of confirming it. This recurred independently more than once in
+        # the source project; the error must name the exact expected value.
+        done = self.complete(qualify=False)
+        richard_event_id = done['subagents']['richard'][0]['dispatch_event_id']
+        original = next(r for r in records.json_lines(self.root / project.STATE / 'dispatch_log.jsonl')
+                        if r['event_id'] == richard_event_id)
+        footer = copy.deepcopy(original['footer'])
+        footer['documentation_review']['status'] = 'sealed'
+        event = hooks.capture(self.root, {'agent_type': 'richard', 'agent_id': original['agent_id'], 'session_id': 'synthetic-session-2',
+                                          'last_assistant_message': '```json\n' + json.dumps(footer) + '\n```'})
+        done['subagents']['richard'][0]['dispatch_event_id'] = event['event_id']
+        with self.assertRaisesRegex(ValueError, "literal string 'confirmed'.*got 'sealed'"):
+            final_verification.run(self.root, done, 'arch')
+
+    def test_stale_candidate_signature_names_the_expected_value_and_recovery_command(self):
+        # Fix 3c (2026-09-23 self-improvement): the previous message ("0
+        # independent approvals") gave no hint that the actual cause was a
+        # wrong signature *scheme* (issue_candidates.py's own content-addressed
+        # signature, not project.py::source_signature) -- this recurred
+        # independently for both Bob and Richard in the source project.
+        done = self.complete(qualify=False)
+        richard_event_id = done['subagents']['richard'][0]['dispatch_event_id']
+        original = next(r for r in records.json_lines(self.root / project.STATE / 'dispatch_log.jsonl')
+                        if r['event_id'] == richard_event_id)
+        footer = copy.deepcopy(original['footer'])
+        wrong_signature_scheme = issue_candidates.capture(self.root, self.issue, self.start['maintenance']['baseline'])['sha256']
+        footer['candidate_signature'] = wrong_signature_scheme
+        event = hooks.capture(self.root, {'agent_type': 'richard', 'agent_id': original['agent_id'], 'session_id': 'synthetic-session-3',
+                                          'last_assistant_message': '```json\n' + json.dumps(footer) + '\n```'})
+        done['subagents']['richard'][0]['dispatch_event_id'] = event['event_id']
+        with self.assertRaisesRegex(ValueError, re.escape(wrong_signature_scheme) + '.*project.py signature'):
+            final_verification.run(self.root, done, 'arch')
+
     def test_missing_or_fabricated_completion_is_rejected(self):
         done = self.complete()
         done['subagents']['richard'][0]['dispatch_event_id'] = 'invented'
@@ -261,6 +310,24 @@ class FrameworkTests(unittest.TestCase):
         inventory = doc_inventory.snapshot(self.root)
         self.assertIn('analysis/diffusion.py', inventory)
         self.assertNotIn('src/diffusion.py', inventory)
+
+    def test_mirrored_paths_detects_drift_missing_and_stale_canonical(self):
+        # Generalizes a real bug (self-improvement/improvements_2026-09-23_...):
+        # a build step needing its own local copy of shared source, with no
+        # import mechanism to keep copies in sync, silently drifting stale.
+        canonical = self.root / 'src/diffusion.py'
+        mirror = self.root / 'src/diffusion_mirror.py'
+        mirror.write_bytes(canonical.read_bytes())
+        cfg = project.config(self.root)
+        cfg['mirrored_paths'] = [{'canonical': 'src/diffusion.py', 'mirrors': ['src/diffusion_mirror.py']}]
+        project.atomic_json(self.root / 'esx/project.json', cfg)
+        self.assertEqual(audit.check(self.root)['status'], 'PASS')
+        mirror.write_text(mirror.read_text() + '\n# drifted\n')
+        with self.assertRaisesRegex(ValueError, 'drifted from canonical source src/diffusion.py'):
+            audit.check(self.root)
+        mirror.unlink()
+        with self.assertRaisesRegex(ValueError, 'missing entirely'):
+            audit.check(self.root)
 
     def test_failing_and_empty_suites_cannot_supply_success(self):
         with self.assertRaisesRegex(ValueError, 'verification failed'):
@@ -335,7 +402,7 @@ class FrameworkTests(unittest.TestCase):
 
     def test_partial_and_blocked_iterations_preserve_unfinished_work(self):
         self.prepare(kind='investigation')
-        done = {'id': self.issue, 'timestamp': self.start['timestamp'], 'outcome': 'partial', 'summary': 'Measured a bounded witness.',
+        done = {'state_version': self.start['state_version'], 'iteration': self.start['iteration'], 'id': self.issue, 'timestamp': self.start['timestamp'], 'outcome': 'partial', 'summary': 'Measured a bounded witness.',
                 'workflow': self.start['workflow'], 'scope_decisions': [], 'subagents': {},
                 'maintenance': self.start['maintenance'],
                 'git': {'committed': False, 'reason': 'The investigation retains its working evidence without a commit.'},

@@ -224,6 +224,16 @@ supersede an unavailable reviewer only through an explicit disposition with evid
             continue
         # Prior candidates are retained as history and supply no final approval.
         if not current_review(record, records, done, candidate_signature):
+            if identity(record, "iteration_timestamp") != done.get("timestamp"):
+                errors.append(f"{agent_id}: review's iteration_timestamp does not match the active issue "
+                               f"(review a fresh candidate under the current iteration, not a prior one)")
+            elif footer.get("candidate_signature") != candidate_signature:
+                errors.append(f"{agent_id}: candidate_signature {footer.get('candidate_signature')!r} does not match "
+                               f"the live source signature {candidate_signature!r} -- recompute it with "
+                               f"'python3 tools/esx/project.py signature' (not issue_candidates.py's own signature, "
+                               f"a different hash scheme) and resubmit")
+            else:
+                errors.append(f"{agent_id}: a later review of this issue exists; only its most recent completion counts")
             continue
         for field in ("verdict", "independent_check", "must_fix", "candidate_signature"):
             if field in final and final[field] != footer.get(field):

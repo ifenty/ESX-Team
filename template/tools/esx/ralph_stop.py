@@ -129,6 +129,8 @@ def archive(root, state, original, kind, iteration, reason):
             notifications.synchronize(root, terminal=reason)
         except (ValueError, OSError, KeyError, TypeError) as exc:
             log(root, 'NOTIFICATION_ERROR', iteration, str(exc))
+    import team_retrospective
+    team_retrospective.persist_debt(root, reason)
     kept = None
     if state.exists() and state.read_bytes() == original:
         kept = state.with_name(state.name + '.' + kind.lower() + '.' + uuid.uuid4().hex[:12])

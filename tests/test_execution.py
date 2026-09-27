@@ -44,8 +44,6 @@ class ExecutionTests(unittest.TestCase):
         import workflow_handoff as wh
         done = self.reviewed()
         start = self.fixture.start
-        start['title'] = 'Periodic stencil qualification'
-        project.atomic_json(self.root / project.STATE / 'issue-start.json', start)
         events = records.json_lines(self.root / project.STATE / 'dispatch_log.jsonl')
         selections = []
         for event in events:
@@ -236,6 +234,7 @@ class ExecutionTests(unittest.TestCase):
             records.save_history(self.root, row)
         start['timestamp'] = '2026-09-15T00:00:02+00:00'
         project.atomic_json(self.root / project.STATE / 'issue-start.json', start)
+        self.fixture.reflect()
         with self.assertRaisesRegex(ValueError, 'diagnosis checkpoint'):
             self.fixture.prepare(kind='investigation')
 

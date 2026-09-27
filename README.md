@@ -124,6 +124,7 @@ and triggers to the relevant role definitions.
 | `configuration_paths` | Relevant lockfiles, solver settings, build files, parameter files and scripts |
 | `output_paths` | Generated outputs excluded from source inventories; must not conceal a configured root |
 | `external_inputs` | Explicit external input files; their actual bytes and resolved identities are hashed |
+| `mirrored_paths` | Optional: `{"canonical": path, "mirrors": [path, ...]}` pairs for files a build/compile step needs its own local copy of (no shared-import mechanism available); `tools/esx/audit.py` flags any mirror whose bytes have drifted from its canonical source |
 | `environment_variables` | Environment values relevant to reproducibility; do not list credential variables |
 | `toolchain_commands` | Foreground argv arrays reporting the actual compiler/interpreter/library environment |
 | `command_timeout_seconds` | Maximum foreground command duration; choose for the declared workflow |
@@ -277,3 +278,16 @@ Arch sends through the authenticated provider tool and records actual receipts o
 concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
+
+## Version 1.1.0: measured and bounded team operation
+
+The master includes shared run/issue/turn budgets, coordinator and child accounting,
+mandatory measured retrospectives, recurring-issue follow-up, successful-start
+receipts, generated briefs, early report validation, and recoverable ledger
+promotion. See [bounded operations](template/devel-loop/team_operations.md) and
+[self-improvement](template/devel-loop/self-improvement/README.md).
+
+New process records and standing rules belong to each receiving project; upgrades
+preserve them. Existing installations need a preview/apply upgrade to receive these
+controls. Master changes alone do not change a running project. Qualify its real
+provider separately; offline tests do not establish live savings or billing totals.

@@ -64,13 +64,17 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 5. Assemble a review packet with exact completion events. For a scientific change,
    the assigned owner uses final_verification.py after readiness passes. Preserve
    its result and receipt. A failed attempt cannot reuse an earlier approval result.
-6. Move an accepted issue into closed_issues.md, or retain partial/blocked work with
+6. Prepare the closeout and use loop_lifecycle.py promote to preview/apply an
+   accepted issue move with recovery evidence, or retain partial/blocked work with
    its next step and dependency. Complete issue-done.json using the start timestamp.
 7. Run --check-done. PASS saves the complete closeout in durable history.
 8. Drain required authorized notifications, retaining provider receipts or concrete
    errors in the outbox. If issue-done communication fields change, rerun --check-done
    to refresh the matching history entry atomically.
-9. Continue through --next. An interruption resumes existing assignments and
+9. Generate --draft-retro, review its measured accounting, and save retrospective.json.
+   Run --check-retro; resolve due process follow-ups. This is mandatory even with
+   an empty queue. See [self-improvement](self-improvement/README.md).
+10. Continue through --next. An interruption resumes existing assignments and
    evidence. After two unsuccessful correction rounds, complete the required
    diagnosis checkpoint before another dependent iteration.
 
@@ -94,3 +98,32 @@ The gate checks scope, identities, current reviews, verification provenance,
 documentation coverage, map freshness, issue/lesson records and Git/communication
 dispositions. Arch and Richard retain responsibility for scientific adequacy,
 authorization and semantic risk. Structural validation does not establish these judgments.
+
+## Scientific-signature drift
+
+`--check-done` requires `workflow.kind == 'scientific_change'` whenever the live
+scientific-path signature no longer matches this issue's own frozen
+`numerical_signature_at_start` (recorded once, at this issue's first `--prepare`,
+and never refreshed by a later re-prepare). Any *other* `scientific_change`
+closure that touches `source_paths`/`test_paths`/`configuration_paths` in the
+meantime causes this drift for every currently-open issue, regardless of
+whether that issue's own work touched anything scientific. This is expected,
+not a bug: the gate cannot tell "unrelated drift" from "a change to this
+issue's own scope I haven't reviewed yet" without a fresh review.
+
+Recovery is a **confirmation-only** redispatch: amend `workflow.kind` to
+`scientific_change`, then dispatch Bob and Richard to independently re-confirm
+(a) this issue's own candidate is unchanged since baseline, (b) its acceptance
+criterion is otherwise already satisfied, and (c) no new source change is
+needed. This is a real, bounded review, not a rubber stamp — but it should be
+fast when there is genuinely nothing new to check.
+
+If an issue is expected to stay open across other issues' closures (e.g. it
+depends on a long-running capture or external process), prefer starting it as
+`kind=scientific_change` from the first `--prepare` rather than
+`investigation`/`harness_change`, even if no source change is anticipated yet.
+This avoids the reclassification round entirely rather than absorbing it later
+under time pressure.
+
+For shared monetary/time/call ceilings and coordinator accounting, follow
+[bounded operations](team_operations.md). Interactive host costs require explicit coverage disclosure.

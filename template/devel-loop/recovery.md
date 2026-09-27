@@ -35,6 +35,12 @@ input contains `outcome`, `constraints` and `acceptance_tests`. Those fields sta
 the agreed behavior, preserved invariants and executable acceptance criteria.
 A previous packet can be supplied with `--prior` to retain exact historical events.
 
+Run `selections` first, every time — before hand-searching `dispatch_log.jsonl`
+or re-dispatching a role "to be safe." A real, already-completed review that
+is not selected from this inventory is not corrected later; it is discarded,
+and its work (including any independent check it already ran) must be redone
+from scratch under a new identity.
+
 ```bash
 python3 tools/esx/workflow_records.py selections > /tmp/available-events.json
 # Select explicit event IDs from this inventory and save /tmp/selected-events.json.
@@ -166,3 +172,12 @@ its issue, owner, measured source/tests/configuration/toolchain dependencies and
 intact log still agree. It records **reused evidence** and retains the original
 execution receipt. Changed numerical dependencies, invalid logs or unresolved
 correctness findings prevent reuse. No agent edits a stored receipt to refresh it.
+
+## Process ledgers and budget exhaustion
+
+For a pending ledger journal, run `python3 tools/esx/self_improvement.py recover`
+(or `recover --rollback`) before other acceptance work. A changed original is
+never overwritten. Unknown cost retains its reservation. Do not delete budget
+ledgers or reset timestamps to resume. Use the existing Owner-authorized extension
+interface described in [bounded operations](team_operations.md). A stopped loop
+retains retrospective debt for completion before the next issue.

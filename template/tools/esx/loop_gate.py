@@ -18,11 +18,16 @@ import doc_contract as maintenance
 import workflow_policy as workflow
 import verify
 import workflow_records
+import loop_iteration
+import team_retrospective
+import team_budget
+import team_accounting
 from project import (STATE, ROLES, atomic_json, config, json_file, local, now,
                      require, source_signature)
 from records import json_lines, save_history, validate_records
 
 PROMISE = 'ESX-LOOP-NO-ACTIONABLE-WORK'
+SELF_ASSESSMENT_WINDOW = 10
 
 
 def announcement(record):
@@ -39,16 +44,19 @@ def announcement(record):
 
 
 class Gate:
-    def __init__(self, root):
+    def __init__(self, root, ledger_overrides=None):
+        self.ledger_overrides = ledger_overrides
         self.root = Path(root).resolve()
         self.cfg = config(self.root)
 
     def read(self, name):
         return json_file(self.root, f'{STATE}/{name}')
 
-    def prepare(self, issue, kind, risks, owner, priority, map_ref, targets, docs, use, diagnosis=None):
-        audit.check(self.root)
-        opened, _, _ = validate_records(self.root)
+    def prepare(self, issue, kind, risks, owner, priority, map_ref, targets, docs, use, diagnosis=None, budget_kind=None):
+        team_retrospective.require_clear(self.root)
+        team_retrospective.require_followup(self.root)
+        audit.check(self.root, self.ledger_overrides)
+        opened, _, _ = validate_records(self.root, self.ledger_overrides)
         require(issue in opened and opened[issue]['state'] != 'blocked', 'select an actionable open issue')
         require(opened[issue]['anchors'], 'file source/test anchors in the issue before preparing work')
         hist = json_lines(local(self.root, f'{STATE}/loop_history.jsonl'))
@@ -68,7 +76,7 @@ class Gate:
                 policy[key] = first['workflow'][key]
         policy['final_verify_owner'] = owner
         require(priority and priority.strip(), 'record the selection reason')
-        start = {'id': issue, 'title': opened[issue]['title'], 'timestamp': now(),
+        start = {'state_version': 2, 'budget': team_budget.limits(budget_kind or kind), 'id': issue, 'title': opened[issue]['title'], 'timestamp': now(),
                  'priority_reason': priority, 'workflow': policy,
                  'iteration': 1 + sum(row.get('id') == issue for row in hist),
                  'maintenance': {'baseline': base, 'orientation': nav},
@@ -77,12 +85,22 @@ class Gate:
             start['diagnosis_checkpoint'] = diagnosis
         self.check_diagnosis(start, hist)
         require(not workflow.validate_workflow(policy), 'invalid workflow decision')
+        previous_done = local(self.root, f'{STATE}/issue-done.json')
+        if previous_done.exists():
+            from project import file_hash
+            archived = local(self.root, f'{STATE}/closed/issue-done-{file_hash(previous_done)}.json')
+            if not archived.exists():
+                from project import atomic_bytes
+                atomic_bytes(archived, previous_done.read_bytes())
+            previous_done.unlink()
         atomic_json(state, start)
         return start
 
     def check_start(self):
+        team_retrospective.require_clear(self.root)
+        team_retrospective.require_followup(self.root)
         start = self.read('issue-start.json')
-        opened, _, _ = validate_records(self.root)
+        opened, _, _ = validate_records(self.root, self.ledger_overrides)
         require(start['id'] in opened and opened[start['id']]['state'] != 'blocked', 'start issue is not selectable')
         self.check_diagnosis(start, json_lines(local(self.root, f'{STATE}/loop_history.jsonl')))
         errors = workflow.validate_workflow(start['workflow']) + maintenance.check_start(self.root, start)
@@ -92,6 +110,7 @@ class Gate:
         announcement(start)
         notifications.synchronize(self.root)
         require(not notifications.pending(self.root), notifications.notice(self.root) or 'pending communication')
+        loop_iteration.record_start(self.root, start)
         return start
 
     def check_diagnosis(self, start, history):
@@ -105,16 +124,24 @@ class Gate:
             require(not errors, '; '.join(errors))
 
     def check_done(self):
+        with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'closeout'):
+            return self._check_done()
+
+    def _check_done(self):
         """Validate complete, partial or blocked work without manufacturing PASS.
 
         Completed work requires configured final checks and sealed documentation.
         Partial/blocked work retains observations and a concrete next step. Every
         claimed agent completion is correlated to its actual hook-captured footer.
         """
-        audit.check(self.root)
+        audit.check(self.root, self.ledger_overrides)
         start, done = self.read('issue-start.json'), self.read('issue-done.json')
         require((done.get('id'), done.get('timestamp')) == (start['id'], start['timestamp']),
                 'done must preserve start id and iteration timestamp')
+        done['start_validation'] = loop_iteration.start_status(self.root, start)
+        if start.get('state_version', 1) >= 2 or done.get('state_version', 1) >= 2:
+            require(loop_iteration.matches(start, done), 'closeout must preserve exact iteration identity')
+            require(done['start_validation']['validated'], 'successful --check-start receipt required for this iteration')
         require(done.get('outcome') in ('completed', 'partial', 'blocked') and done.get('summary'), 'record outcome and summary')
         errors = workflow.validate_workflow(start['workflow']) + workflow.validate_workflow(done.get('workflow', {}))
         errors += workflow.validate_transition(start['workflow'], done.get('workflow'), done.get('workflow_amendment'))
@@ -126,7 +153,7 @@ class Gate:
         policy = done['workflow']
         for key in ('verify_signature_at_start', 'numerical_signature_at_start'):
             require(policy[key] == start['workflow'][key], 'workflow amendment must preserve measured initial signatures')
-        opened, closed, lessons = validate_records(self.root)
+        opened, closed, lessons = validate_records(self.root, self.ledger_overrides)
         if done['outcome'] == 'completed':
             require(done['id'] in closed and done['id'] not in opened, 'completed issue must be in closed_issues.md')
             if source_signature(self.root, scientific=True) != policy['numerical_signature_at_start']:
@@ -143,7 +170,7 @@ class Gate:
         if git['committed']:
             sha = git.get('sha', '')
             require(isinstance(sha, str) and re.fullmatch(r'[0-9a-fA-F]{7,40}', sha), 'record a Git commit SHA')
-            result = subprocess.run(['git', 'cat-file', '-e', sha + '^{commit}'], cwd=self.root, capture_output=True)
+            result = subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'HEAD'], cwd=self.root, capture_output=True)
             require(result.returncode == 0, 'recorded commit does not exist in this repository')
         else:
             require(isinstance(git.get('reason'), str) and len(git['reason'].strip()) >= 20, 'explain the uncommitted disposition')
@@ -225,11 +252,39 @@ class Gate:
             require(not errors, '; '.join(errors))
         errors = workflow_records.check_milestone(self.root, done, allow_legacy=policy.get('execution_version') != 1)
         require(not errors, '; '.join(errors))
+        done.setdefault('start_timestamp', start['timestamp'])
+        prior = next((row for row in json_lines(local(self.root, f'{STATE}/loop_history.jsonl'))
+                      if loop_iteration.matches(start, row)), {})
+        done.setdefault('closed_at', prior.get('closed_at') or now())
         return done
 
+    def self_assessment_notice(self, window=SELF_ASSESSMENT_WINDOW):
+        """Advisory only; never blocks --next. See loop_contract.md's lesson-recording step.
+
+        Counts completed loop_history.jsonl rows newer than lessons_learned.md's
+        own last edit. This is a cheap proxy for "iterations since a process
+        lesson was last recorded" -- it cannot tell whether a real retrospective
+        happened without a code edit, only that none was saved.
+        """
+        lessons = local(self.root, 'lessons_learned.md')
+        if not lessons.exists():
+            return None
+        since = dt.datetime.fromtimestamp(lessons.stat().st_mtime, dt.timezone.utc).isoformat()
+        history = json_lines(local(self.root, f'{STATE}/loop_history.jsonl'))
+        count = sum(1 for row in history if str(row.get('start_timestamp') or row.get('timestamp') or '') > since)
+        if count >= window:
+            return (f'SELF-ASSESSMENT: {count} loop iterations completed since lessons_learned.md was last '
+                    f'updated (threshold {window}). Record a process lesson (or an explicit '
+                    f'"nothing new this window" entry) before continuing -- see ARCHITECT.md#closure-and-communication. '
+                    f'A process lesson is about the loop itself, not the science: e.g. repeated correction rounds on '
+                    f'the same footer field, discarded review identities, or a recurring dispatch failure mode.')
+        return None
+
     def next(self):
-        audit.check(self.root)
-        opened, closed, _ = validate_records(self.root)
+        for notice in team_retrospective.rule_notices(self.root):
+            print(notice)
+        audit.check(self.root, self.ledger_overrides)
+        opened, closed, _ = validate_records(self.root, self.ledger_overrides)
         notifications.synchronize(self.root)
         message = notifications.notice(self.root)
         if message:
@@ -242,11 +297,22 @@ class Gate:
             if not history or (history[-1]['id'], history[-1]['timestamp']) != (start['id'], start['timestamp']):
                 print(f"NEXT: finish active iteration {start['id']} and run --check-done")
                 return 0
+        due = team_retrospective.pending(self.root)
+        if due:
+            print('NEXT: RETROSPECTIVE for ' + due['id'] + '; run --draft-retro, review, then --check-retro')
+            return 0
+        followup = team_retrospective.followup_due(self.root)
+        if followup:
+            print('NEXT: PROCESS FOLLOW-UP: ' + ', '.join(followup) + '; run tools/esx/self_improvement.py plan')
+            return 0
         actionable = [row for row in opened.values() if row['state'] != 'blocked']
         for row in opened.values():
             if row['blocker'] and row['blocker'].split(' — ', 1)[0] in closed:
                 print(f"UNBLOCKABLE: {row['id']}; inspect the dependency and update its status")
         if actionable:
+            notice = self.self_assessment_notice()
+            if notice:
+                print(notice)
             print('NEXT: select an issue by impact, dependency and bounded acceptance')
             for row in actionable:
                 print(f"  {row['id']}: {row['title']}")
@@ -269,13 +335,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     mode = parser.add_mutually_exclusive_group(required=True)
-    for name in ('next', 'check-start', 'check-done', 'doctor', 'code-sig'):
+    for name in ('next', 'check-start', 'check-done', 'doctor', 'code-sig', 'draft-retro', 'check-retro', 'timings'):
         mode.add_argument('--' + name, action='store_true')
     mode.add_argument('--prepare', metavar='ISSUE')
     parser.add_argument('--kind', choices=workflow.KINDS, default='investigation')
     parser.add_argument('--risk', choices=workflow.RISKS, action='append', default=[])
     parser.add_argument('--owner', choices=('arch', 'bob', 'richard'), default='arch')
     parser.add_argument('--priority')
+    parser.add_argument('--budget-kind', choices=tuple(team_budget.DEFAULTS), help='allocation class; scientific_small retains full scientific review')
     parser.add_argument('--map', default='docs/code_map.md#pipeline')
     parser.add_argument('--target', action='append', default=[])
     parser.add_argument('--doc', action='append', default=[])
@@ -286,17 +353,26 @@ def main():
         gate = Gate(args.root)
         if args.next:
             return gate.next()
-        if args.doctor:
+        if args.draft_retro:
+            result = team_retrospective.draft(gate.root)
+            atomic_json(local(gate.root, f'{STATE}/retrospective-draft.json'), result)
+        elif args.check_retro:
+            with team_accounting.phase(gate.root, gate.read('retrospective.json')['id'], 'retrospective'):
+                result = team_retrospective.accept(gate.root, gate.read('retrospective.json'))
+        elif args.timings:
+            result = team_accounting.summary(gate.root)
+        elif args.doctor:
             result = audit.check(gate.root)
         elif args.code_sig:
             result = {'candidate_signature': source_signature(gate.root)}
         elif args.prepare:
             result = gate.prepare(args.prepare, args.kind, args.risk, args.owner, args.priority,
-                                  args.map, args.target, args.doc, args.use, args.diagnosis)
+                                  args.map, args.target, args.doc, args.use, args.diagnosis, args.budget_kind)
         elif args.check_start:
             result = gate.check_start()
         else:
             result = gate.check_done()
+            atomic_json(local(gate.root, f'{STATE}/issue-done.json'), result)
             save_history(gate.root, result)
             notifications.synchronize(gate.root)
             if notifications.notice(gate.root):

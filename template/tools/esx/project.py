@@ -66,6 +66,14 @@ def config(root, ready=True):
         require(isinstance(argv, list) and argv and all(isinstance(s, str) and s for s in argv), 'invalid toolchain command')
     require(type(cfg.get('command_timeout_seconds')) in (int, float) and math.isfinite(cfg['command_timeout_seconds']) and cfg['command_timeout_seconds'] > 0,
             'command_timeout_seconds must be finite and positive')
+    require(isinstance(cfg.get('mirrored_paths', []), list), 'mirrored_paths must be a list')
+    for entry in cfg.get('mirrored_paths', []):
+        require(isinstance(entry, dict) and isinstance(entry.get('canonical'), str) and entry['canonical']
+                and isinstance(entry.get('mirrors'), list) and entry['mirrors']
+                and all(isinstance(m, str) and m for m in entry['mirrors']),
+                'each mirrored_paths entry needs a canonical path and a nonempty list of mirror paths')
+        for name in [entry['canonical']] + entry['mirrors']:
+            local(root, name)
     if ready:
         for key in ('project_id', 'project_name', 'mission'):
             require(isinstance(cfg.get(key), str) and cfg[key].strip(), f'complete esx/project.json: {key}')
@@ -75,6 +83,10 @@ def config(root, ready=True):
         require(cfg.get('toolchain_commands'), 'configure toolchain_commands')
         for name in cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']:
             require(local(root, name).exists(), f'configured input is missing: {name}')
+        # mirrored_paths existence/drift is checked by audit.py::audit_mirrors,
+        # which gives a more specific message (what it should mirror, or
+        # whether it's the canonical side that's missing) than a bare
+        # "configured input is missing" would.
         for name in ('esx/project_profile.md', 'docs/code_map.md'):
             require('TODO_ESX' not in local(root, name).read_text(), f'complete {name}')
     return cfg
@@ -85,7 +97,20 @@ def mutable_loop_path(name):
     return name.startswith(('.claude/esx-loop', '.claude/ralph-loop'))
 
 
+def administrative(name):
+    """Exclude records, not policy or executable witnesses, from acceptance."""
+    base = 'devel-loop/self-improvement/'
+    if name in {base + item for item in ('open-ESX-team-issues.md', 'closed-ESX-team-issues.md', 'process_changelog.md')}:
+        return True
+    return ((name.startswith(base + 'assessments/') and Path(name).suffix in ('.md','.json','.txt','.log'))
+            or (name.startswith(base + 'records/') and Path(name).suffix == '.md'))
+
+
 def selected(name, cfg, scientific=False):
+    # Explicit scientific roots always win over administrative conventions.
+    science_roots = cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']
+    if administrative(name) and not any(name == p or name.startswith(p.rstrip('/') + '/') for p in science_roots):
+        return False
     if EXCLUDED_PARTS.intersection(Path(name).parts) or name.endswith(('.pyc', '.pyo')):
         return False
     if mutable_loop_path(name):
@@ -190,3 +215,31 @@ def atomic_bytes(path, data):
 
 def json_file(root, name):
     return json.loads(local(root, name).read_text())
+
+
+def main():
+    """Print the exact 64-hex signature a footer's candidate_signature field requires.
+
+    Distinct from issue_candidates.py's own content-addressed candidate
+    signature: this is project.py::source_signature(root), the value
+    workflow_policy.py::current_review and final_verification.py actually
+    compare a reviewer's footer against.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
+    sub = parser.add_subparsers(dest='command', required=True)
+    signature = sub.add_parser('signature', help='print source_signature(root) for a footer candidate_signature field')
+    signature.add_argument('--scientific', action='store_true', help='use the narrower scientific-paths inventory')
+    args = parser.parse_args()
+    try:
+        result = {'signature': source_signature(args.root, args.scientific)}
+        print(json.dumps(result, indent=2))
+        return 0
+    except (ValueError, OSError, TypeError, KeyError) as exc:
+        print(f'project signature: {exc}', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -126,6 +126,18 @@ class AgentRuntimeTests(unittest.TestCase):
     def test_wrong_correction_round_is_incomplete(self):
         self.assertEqual(self.start(round=3)["status"], "incomplete")
 
+    def test_stalled_prompt_reader_cannot_bypass_turn_timeout(self):
+        self.binary.write_text('#!' + sys.executable + '\nimport sys,time\n'
+            'if "--version" in sys.argv: print("stalled-fixture");sys.exit(0)\n'
+            'time.sleep(30)\n')
+        begun = time.monotonic()
+        event = runtime.run_turn(self.root, role='bob', issue='TEST-001',
+            prompt='large bounded fixture ' * 60000, executable=str(self.binary), timeout=.2)
+        self.assertLess(time.monotonic() - begun, 5)
+        self.assertEqual(event['status'], 'failed')
+        self.assertEqual(event['error'], 'timeout')
+        self.assertIsNone(event['cost_usd'])
+
     def test_all_role_instructions_route_to_complete_common_footer(self):
         template = json.loads((ROOT / 'template/esx/templates/agent_report.json').read_text())
         for key in ('agent', 'issue_id', 'iteration_timestamp', 'correction_round', 'orientation'):

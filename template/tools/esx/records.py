@@ -19,10 +19,10 @@ def unfenced(text):
     return '\n'.join(lines)
 
 
-def issues(root, closed=False):
+def issues(root, closed=False, overrides=None):
     """Parse level-two issue entries; fenced blank examples are never live issues."""
     name = 'closed_issues.md' if closed else 'open_issues.md'
-    text = unfenced(local(root, name).read_text())
+    text = unfenced(overrides[name] if overrides and name in overrides else local(root, name).read_text())
     entries = {}
     for block in re.split(r'(?m)^## ', text)[1:]:
         uuid = re.search(r'^\*\*UUID\*\*\s*:\s*(\S+)\s*$', block, re.M)
@@ -48,8 +48,8 @@ def issues(root, closed=False):
     return entries
 
 
-def validate_records(root):
-    opened, closed = issues(root), issues(root, True)
+def validate_records(root, overrides=None):
+    opened, closed = issues(root, overrides=overrides), issues(root, True, overrides)
     require(not opened.keys() & closed.keys(), 'an issue appears in both open and closed records')
     for row in opened.values():
         if row['blocker']:

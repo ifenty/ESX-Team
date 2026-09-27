@@ -1,0 +1,224 @@
+[
+  {
+    "issue": "TEAM-LEDGER-PROMOTION-001",
+    "disposition": "Ported",
+    "esx_owner": "ledger_transaction.py / loop_lifecycle.py",
+    "rationale": "Preview, validation, locked CAS, original archives, journal, recovery and idempotency for both ledgers."
+  },
+  {
+    "issue": "TEAM-SELF-IMPROVEMENT-RECORDS-001",
+    "disposition": "Ported",
+    "esx_owner": "self_improvement.py / process_evidence.py",
+    "rationale": "Separate project-owned process records, generated index, commit/source/output-bound successful evidence, honest effectiveness claims."
+  },
+  {
+    "issue": "GATE-SAME-ISSUE-ITERATION-BOUNDARY-001",
+    "disposition": "Adapted",
+    "esx_owner": "loop_iteration.py / loop_gate.py",
+    "rationale": "Keep ESX frozen start/done timestamp; require exact iteration identity for new state and archive previous done records."
+  },
+  {
+    "issue": "GATE-DONE-WITHOUT-START-001",
+    "disposition": "Ported",
+    "esx_owner": "loop_iteration.py / loop_gate.py / final_verification.py",
+    "rationale": "Content-bound successful start receipt before retained dispatch, final science and new-state closeout; legacy explicitly identified."
+  },
+  {
+    "issue": "GATE-POSTVERIFY-PAPERWORK-DEADLOCK-001",
+    "disposition": "Adapted",
+    "esx_owner": "project.py / audit.py / verify.py",
+    "rationale": "Exclude administrative records from expensive fingerprints; validate live ledgers even on cached passes; science configuration overrides exclusion."
+  },
+  {
+    "issue": "VERIFY-SCOPE-COMMENT-COST-001",
+    "disposition": "Not applicable",
+    "esx_owner": "project.py / verify.py",
+    "rationale": "ESX has no ADX verify_manifest parser. Preserve arbitrary configured input bytes, including comments; do not assume a language-independent comment semantics."
+  },
+  {
+    "issue": "HARNESS-BRIEF-FOOTER-CONTRACT-001",
+    "disposition": "Adapted",
+    "esx_owner": "brief.py / footer_contract.py / agent_runtime.py",
+    "rationale": "Generate role briefs from the existing report form; validate nested types, exact identities, own orientation and real approval evidence before completion."
+  },
+  {
+    "issue": "HARNESS-GATE-BEFORE-REVIEW-001",
+    "disposition": "Ported",
+    "esx_owner": "agent_runtime.py / workflow_handoff.py",
+    "rationale": "Require the full configured structural suite for current state before Richard or review readiness; reuse exact current evidence."
+  },
+  {
+    "issue": "HARNESS-LIFECYCLE-INPUT-SHAPES-001",
+    "disposition": "Adapted",
+    "esx_owner": "workflow_handoff.py / loop_lifecycle.py",
+    "rationale": "Accept explicit empty constraints, emit stable handoffs, prepare unaccepted closeout from explicit metadata and actual verification."
+  },
+  {
+    "issue": "POLICY-WITNESS-LOCATION-AND-SIGNATURE-SCOPE-001",
+    "disposition": "Adapted",
+    "esx_owner": "project.py / devel-loop/team_operations.md",
+    "rationale": "Keep executable witnesses and normative instructions in inventory; register scientific witnesses and executable dependencies in project configuration."
+  },
+  {
+    "issue": "TEAM-BUDGET-CONTINUATION-001",
+    "disposition": "Ported",
+    "esx_owner": "team_budget.py",
+    "rationale": "Owner-recorded hashed CAS extension retains cumulative spend, unknown reservations, calls and history; cannot extend independent run cap."
+  },
+  {
+    "issue": "TEAM-ACCOUNTING-COVERAGE-001",
+    "disposition": "Adapted",
+    "esx_owner": "team_accounting.py / team_driver.py",
+    "rationale": "Coordinator/child/repair/provider totals, interval unions, timed phases, native unknowns, missing timing and billing coverage."
+  },
+  {
+    "issue": "TEAM-RECURRING-FOLLOWUP-001",
+    "disposition": "Ported",
+    "esx_owner": "team_retrospective.py",
+    "rationale": "Twice in three records schedules owning process work or one-closeout deferral; no new unrelated work until disposition."
+  },
+  {
+    "issue": "TEAM-STANDING-RULE-LIFECYCLE-001",
+    "disposition": "Adapted",
+    "esx_owner": "team_retrospective.py / devel-loop/loop_rules.md",
+    "rationale": "Print standing/recent rules; flag repeats; reject repeated standing rules in new reflections; 25-rule budget and explicit retirement guidance."
+  },
+  {
+    "issue": "TEAM-RETROSPECTIVE-ACTIONABILITY-001",
+    "disposition": "Ported",
+    "esx_owner": "team_retrospective.py / loop_gate.py",
+    "rationale": "All completed/partial/blocked closeouts create mandatory measured debt; problems need dispositions and open owners for deferral."
+  },
+  {
+    "issue": "TEAM-RETROSPECTIVE-HISTORY-VERSIONING-001",
+    "disposition": "Adapted",
+    "esx_owner": "team_retrospective.py / esx_manager.py",
+    "rationale": "Archive accepted reflection plus accounting outside ignored loop_state; upgrades preserve project history."
+  },
+  {
+    "issue": "TEAM-FOOTER-PATH-ANNOTATION-001",
+    "disposition": "Already compatible",
+    "esx_owner": "workflow_records.py / loop_gate.py",
+    "rationale": "ESX does not reject files_touched prose by path equality; exact identity and actual source/evidence remain authoritative."
+  },
+  {
+    "issue": "TEAM-EFFICIENCY-CYCLE-001",
+    "disposition": "Adapted",
+    "esx_owner": "team_budget.py / team_driver.py / runtime_tool_hook.py / bounded_command.py",
+    "rationale": "Shared run/issue/turn limits, 80% handoff, isolated timeouts, early reports and deterministic reuse; no reduced scientific review."
+  },
+  {
+    "issue": "TEAM-RALPH-STOP-PROBE-001",
+    "disposition": "Already present",
+    "esx_owner": "check_ralph_hook.py / tests/test_ralph.py",
+    "rationale": "Project-owned executable hook qualification and isolated optional installed-plugin checks."
+  },
+  {
+    "issue": "TEAM-RALPH-PROMPT-001",
+    "disposition": "Already equivalent",
+    "esx_owner": "loop_control.py / devel-loop/autonomous_prompt.md",
+    "rationale": "ESX has its own canonical persisted prompt; Copilot-specific launcher details do not transfer."
+  },
+  {
+    "issue": "TEAM-COPILOT-CONTINUATION-001",
+    "disposition": "Not applicable",
+    "esx_owner": "devel-loop/loop_contract.md",
+    "rationale": "ESX supports the project-owned Claude loop. Do not import a different host continuation guard. Alternate-host qualification remains separate."
+  },
+  {
+    "issue": "TEAM-COPILOT-LOOP-HOST-001",
+    "disposition": "Not applicable",
+    "esx_owner": "devel-loop/team_operations.md",
+    "rationale": "Copilot-specific ADX host integration is outside ESX current support. Shared low-level adapter code is not evidence of an ESX Copilot deployment."
+  },
+  {
+    "issue": "TEAM-REPO-LAYOUT-PORTABILITY-001",
+    "disposition": "Already present; preserved",
+    "esx_owner": "project.py / install-upgrade / tests/test_framework.py",
+    "rationale": "Paths resolve from deployment root, including spaces and invocation outside it; deployed template has no source-project dependency."
+  },
+  {
+    "issue": "TEAM-MULTICHECKOUT-HOOK-001",
+    "disposition": "Already equivalent",
+    "esx_owner": "check_ralph_hook.py / loop_control.py",
+    "rationale": "Each ESX project owns its hooks/state; external Ralph overlap is refused without changing global plugin settings."
+  },
+  {
+    "issue": "HARNESS-FINALVERIFY-INTERRUPT-TEST-RACE-001",
+    "disposition": "Adapted",
+    "esx_owner": "verify.py::execute",
+    "rationale": "Install SIGINT as well as SIGTERM/SIGHUP handling while owning execution, then restore inherited handlers."
+  },
+  {
+    "issue": "LOOP-CLOSEOUT-GENERATED-VIEW-INVENTORY-001",
+    "disposition": "Adapted",
+    "esx_owner": "project.py / self_improvement.py",
+    "rationale": "New generated process index is administrative and stable; ESX has no ADX scientific precedent index."
+  },
+  {
+    "issue": "LOOP-GATE-LESSONS-ROOT-001",
+    "disposition": "Already present",
+    "esx_owner": "records.py / loop_gate.py",
+    "rationale": "Lesson validation uses the explicit ESX project root, never the Git root parent."
+  },
+  {
+    "issue": "PRECEDENT-INDEX-VOLATILE-STAMP-001",
+    "disposition": "Already equivalent",
+    "esx_owner": "self_improvement.py::index_text",
+    "rationale": "Generated process index has no volatile generation timestamp; ADX precedent-specific tool is absent."
+  },
+  {
+    "issue": "DISPATCH-FOOTER-SPECIALIST-ROUND-001",
+    "disposition": "Already present; preserved",
+    "esx_owner": "agent role files / agent_report.json / test_runtime.py",
+    "rationale": "All specialist instructions name the actual correction_round; retained runtime checks it."
+  },
+  {
+    "issue": "RUNTIME-CONTRACT-TEST-AMBIENT-ENV-001",
+    "disposition": "Already equivalent",
+    "esx_owner": "runtime_recovery.py / test_runtime.py / test_workflow_recovery.py",
+    "rationale": "Environment settings are normalized and tests control relevant overrides; secrets remain hashed in contract diagnostics."
+  },
+  {
+    "issue": "LOOP-SILENT-SELFTERM-001",
+    "disposition": "Already present; extended",
+    "esx_owner": "ralph_stop.py / loop_control.py",
+    "rationale": "Bounded owned loop retains terminal reasons and corruption archives; now also persists retrospective debt."
+  },
+  {
+    "issue": "VERIFY-SKIP-SCOPE-GAP-001",
+    "disposition": "Already present; preserved",
+    "esx_owner": "project.py / verify.py / final_verification.py",
+    "rationale": "Verification fingerprints bind framework, configured source/tests/config, commands, external inputs, toolchain and environment; current acceptance is separately validated."
+  },
+  {
+    "issue": "SKILLS-DISCOVERY-LOCATION-001",
+    "disposition": "Already present",
+    "esx_owner": "template/.claude/skills/esx-*/SKILL.md / audit.py",
+    "rationale": "Skills occupy direct discoverable project skill directories; required files are checked."
+  },
+  {
+    "issue": "HARNESS-CONFIG-UNVERSIONED-001",
+    "disposition": "Already present",
+    "esx_owner": "template/.claude/settings.json / esx_manager.py / audit.py",
+    "rationale": "Versioned project hooks and integrity checks are installed from the master while preserving unrelated settings."
+  },
+  {
+    "issue": "LESSONS-PRUNE-BACKLOG-001",
+    "disposition": "Not applicable",
+    "esx_owner": "records.py",
+    "rationale": "ESX has no ADX-specific lesson-count limit to raise. Retain duplicate/evidence validation and project-owned lesson history."
+  },
+  {
+    "issue": "LOOPSTATE-IN-CLAUDE-DIR-001",
+    "disposition": "Already present",
+    "esx_owner": "project.py::STATE",
+    "rationale": "Durable evidence is in devel-loop/loop_state; only hook-owned continuation state remains under .claude and is excluded from signatures."
+  },
+  {
+    "issue": "GATE-SIG-UNTRACKED-ARTIFACTS-001",
+    "disposition": "Already equivalent",
+    "esx_owner": "project.py::selected / inventory_paths",
+    "rationale": "Configured output exclusions and cache/state exclusions preserve untracked real source and witnesses. No blanket tracked-only filter."
+  }
+]

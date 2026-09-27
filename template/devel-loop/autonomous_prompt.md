@@ -9,3 +9,8 @@ Drain required notifications using .claude/skills/esx-announce/SKILL.md, retaini
 real provider receipts or concrete errors. Preserve the finite loop budget.
 Emit <promise>ESX-LOOP-NO-ACTIONABLE-WORK</promise> only when --next exits 3 and
 prints that token.
+
+Complete --draft-retro/--check-retro after each closeout before selecting more work.
+Resolve due process follow-ups. Respect shared time, call and USD limits; return
+partial evidence near the limit. Report observed costs and all coverage gaps.
+Read devel-loop/team_operations.md for generated briefs and budget recovery.

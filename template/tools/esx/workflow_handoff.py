@@ -60,6 +60,10 @@ def readiness(root, packet, stage='review', owner=None):
         findings.append(finding('PACKET_INVALID', 'packet', 'A packet and issue-start object are required.',
                                 'Supply the exact review packet JSON.'))
         return dict(status='blocked', stage=stage, findings=findings)
+    if start.get('state_version', 1) >= 2:
+        import verify
+        check('STRUCTURAL_STALE_OR_FAILING', 'verification.structural', lambda: verify.structural_evidence(Path(root)),
+              'Run the complete configured structural suite before preparing review.')
     issue = start.get('id')
     active = check('RUNTIME_STATE_INVALID', 'runtime.sessions', lambda: active_attempts(root, issue),
                    'Inspect the named retained-session state before preparing the candidate.')
@@ -99,7 +103,7 @@ def readiness(root, packet, stage='review', owner=None):
     if not isinstance(handoff, dict):
         handoff = {}
     for field in ('outcome', 'constraints', 'acceptance_tests'):
-        if not handoff.get(field):
+        if not (isinstance(handoff.get(field), list) if field == 'constraints' else bool(handoff.get(field))):
             findings.append(finding('BRIEF_INCOMPLETE', 'handoff.' + field, 'missing',
                                     'Supply the agreed behavior, constraints and acceptance tests.'))
     dispatches = check('DISPATCH_LOG_INVALID', 'dispatch_log', lambda: records.read_jsonl(

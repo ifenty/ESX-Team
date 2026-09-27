@@ -30,6 +30,11 @@ PROJECT_OWNED = {
     "docs/code_map.md", "docs/model_contract.md", "docs/doc_format_guide.md",
     "open_issues.md", "closed_issues.md", "current_status.md", "long_term_goals.md",
     "lessons_learned.md", "lessons_learned_evidence.md", "old_lessons_learned.md",
+    "devel-loop/loop_rules.md",
+    "devel-loop/self-improvement/open-ESX-team-issues.md",
+    "devel-loop/self-improvement/closed-ESX-team-issues.md",
+    "devel-loop/self-improvement/process_changelog.md",
+    "devel-loop/self-improvement/migration_manifest.json",
 }
 
 def now():
@@ -75,7 +80,8 @@ def template_files(master=MASTER):
     return result
 
 def ownership(name):
-    return "project" if name in PROJECT_OWNED else "framework"
+    return "project" if (name in PROJECT_OWNED or name.startswith((
+        "devel-loop/self-improvement/assessments/", "devel-loop/self-improvement/records/"))) else "framework"
 
 def master_fingerprint(master=MASTER):
     return sha(json_bytes({name: sha(data) for name, data in template_files(master).items()}))

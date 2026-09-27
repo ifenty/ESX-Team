@@ -82,6 +82,28 @@ class InstallUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unresolved conflict"): manager.apply_plan(plan)
         self.assertEqual(engine.read_bytes(), local); self.assertNotEqual(engine.read_bytes(), before)
 
+    def test_upgrade_preserves_process_findings_and_original_archives(self):
+        names = ['devel-loop/loop_rules.md',
+                 'devel-loop/self-improvement/open-ESX-team-issues.md',
+                 'devel-loop/self-improvement/closed-ESX-team-issues.md',
+                 'devel-loop/self-improvement/process_changelog.md',
+                 'devel-loop/self-improvement/records/original.md',
+                 'devel-loop/self-improvement/assessments/trial/assessment.json']
+        for name in names:
+            path = self.master/'template'/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('original template\n')
+        self.install()
+        for name in names:
+            (self.project/name).write_text('project-owned evidence\n')
+            (self.master/'template'/name).write_text('new blank form\n')
+        self.bump()
+        plan = manager.upgrade_plan(self.project, self.master)
+        self.assertEqual(plan['conflicts'], [])
+        manager.apply_plan(plan)
+        for name in names:
+            self.assertEqual((self.project/name).read_text(), 'project-owned evidence\n')
+
     def test_missing_baseline_and_unversioned_master_changes_are_refused(self):
         self.install(); manifest_path = self.project / "ESX-team-local/manifest.json"
         manifest = json.loads(manifest_path.read_text()); digest = manifest["files"]["tools/esx/engine.py"]["baseline_sha256"]

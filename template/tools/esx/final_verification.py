@@ -54,6 +54,9 @@ def ready(root, review, owner):
     """Validate the candidate without requiring bookkeeping that follows success."""
     root = Path(root).resolve()
     start = json_file(root, f'{STATE}/issue-start.json')
+    if start.get('state_version', 1) >= 2:
+        import loop_iteration
+        require(loop_iteration.start_status(root, start)['validated'], 'successful --check-start receipt required before final verification')
     from workflow_handoff import active_attempts
     active = active_attempts(root, start.get('id'))
     if active:

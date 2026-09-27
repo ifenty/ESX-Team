@@ -159,6 +159,12 @@ documentation disposition plan before final review. Every changed function/modul
 needs a concrete disposition; each final reviewer confirms the exact sealed report.
 A lesson, milestone or domain rule is recorded when warranted. Do not invent one
 per issue. Keep lesson IDs stable and pair active lessons with detailed evidence.
+This includes process lessons about the loop itself, not only scientific
+findings — e.g. "N distinct agent identities were dispatched for the same role
+at round 0 before one was reused" or "the same footer field needed correction
+across independent issues" are exactly the kind of pattern worth a lesson entry.
+`--next` surfaces a `SELF-ASSESSMENT` reminder once enough iterations have
+passed without one; treat it as a real prompt, not noise to scroll past.
 
 Arch decides commit timing within applicable owner authorization; the closeout
 records a real SHA or a noncommit reason. Required authorized communications must be attempted through the outbox.
@@ -174,3 +180,14 @@ Retain failed attempts as history. Assess a semantic runtime transition with
 a successful compatibility witness before resuming the same identity. A preflight
 refusal consumes no correction round. Refresh acceptance separately when the
 scientific execution dependencies still match.
+
+## Measured operation
+
+Follow [bounded operations](../../devel-loop/team_operations.md) and
+[measured self-improvement](../../devel-loop/self-improvement/README.md).
+Prefer generated bounded briefs and the smallest applicable allocation. An active
+iteration needs a successful --check-start receipt before retained dispatch or
+closure. Every closeout, including partial and blocked, needs a measured
+retrospective before more work. Resolve recurring process owners or record a
+bounded deferral. Report observed USD, unknown charges and coordinator coverage;
+never infer zero spend from absent provider data. Retain versionable evidence.

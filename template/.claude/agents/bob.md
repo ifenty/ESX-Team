@@ -29,10 +29,14 @@ commits and deployment remain Arch's responsibility within owner authorization.
 - `.claude/skills/esx-investigate/SKILL.md`: uncertain cause, probe or regression boundary.
 - `.claude/skills/esx-instruction-audit/SKILL.md`: affected instructions or enforcing tools.
 
-Use the common footer in esx/templates/agent_report.json. Preserve actual observed
-fields. A check not run has no invented success or timestamp. Your last message
-ends with one fenced JSON report so the completion hook can capture it. Never
-invent dispatch IDs: Arch obtains them from the actual runtime/hook record.
+Use the common footer in esx/templates/agent_report.json. Read
+esx/templates/agent_report_guide.md for the exact required value of
+candidate_signature and independent_check.evidence before your first report —
+these have specific, non-obvious correct values, not free text. Preserve
+actual observed fields. A check not run has no invented success or timestamp.
+Your last message ends with one fenced JSON report so the completion hook can
+capture it. Never invent dispatch IDs: Arch obtains them from the actual
+runtime/hook record.
 
 Read `devel-loop/execution.md` when dispatching, resuming or messaging a retained
 peer. Report material findings promptly through the recorded issue-scoped channel.

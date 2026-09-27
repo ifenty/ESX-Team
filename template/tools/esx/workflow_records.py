@@ -158,18 +158,27 @@ iterations. It supplies no fresh outcome, approval, verification, or delivery cl
     timestamp(start.get('timestamp'))
     require(isinstance(selections, list), 'selections must be a JSON array')
     draft = {key: deepcopy(start[key]) for key in
-             ('id', 'title', 'iteration', 'workflow', 'agent_continuity', 'maintenance', 'diagnosis_checkpoint') if key in start}
+             ('state_version', 'id', 'title', 'iteration', 'workflow', 'agent_continuity', 'maintenance', 'diagnosis_checkpoint') if key in start}
     draft.update(outcome=None, summary='', tests_status=None,
                  open_issues_md_updated=None, remaining_open_count=None,
                  timestamp=start['timestamp'], start_timestamp=start['timestamp'], subagents={}, scope_decisions=[],
-                 milestone={'logged': None, 'reason': ''}, lessons=[],
-                 rules_updated=[], rules_updated_na='', git={'committed': None, 'reason': ''},
+                 # These four default to schema-valid, ready-to-use values (not
+                 # null/absent) so a draft with genuinely nothing to report on
+                 # them already passes check_done()/check_milestone() without
+                 # reverse-engineering their exact required shape one
+                 # ValueError at a time. Callers with a real decision for any
+                 # of these still overwrite the default.
+                 milestone={'logged': False, 'reason': 'No milestone applicable this iteration.'}, lessons=[],
+                 rules_updated=[], rules_updated_na='No rule changes needed this iteration.',
+                 git={'committed': False, 'reason': 'Not committed; pending explicit owner authorization.'},
                  communication={'status': 'pending', 'detail': 'Arch must record the authorized communication disposition.'},
                  next_step='', verification={'status': 'pending',
                     'final_owner': (start.get('workflow') or {}).get('final_verify_owner')})
     pending = ['outcome, summary, tests_status and issue disposition',
-               'scope decisions and remaining blockers', 'milestone, lesson and rule decisions',
-               'git and communication disposition', 'verification and documentation evidence']
+               'scope decisions and remaining blockers',
+               'milestone, lesson and rule decisions (defaulted to none; override if there is a real one)',
+               'git and communication disposition (defaulted to not-committed/pending; override if there is a real disposition)',
+               'verification and documentation evidence']
     selected = []
     if prior is not None:
         require(isinstance(prior, dict) and prior.get('id') == start['id'],

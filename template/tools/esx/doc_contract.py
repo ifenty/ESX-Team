@@ -162,6 +162,12 @@ def pin_baseline(root, issue, ref):
 
 
 def navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
+    import team_accounting
+    with team_accounting.phase(root, issue, 'orientation'):
+        return _navigate(root, issue, base_ref, role, map_ref, targets, docs, use)
+
+
+def _navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
     """Print selected references and record how the role will use this dependency slice."""
     load(root, base_ref, 'baseline', issue)
     require(role in ROLES, 'unknown orientation role')
@@ -480,9 +486,14 @@ def check_done(root, start, done, records, candidate_signature):
                     require(entry['orientation'] == footer.get('orientation'), f'{role}: pasted orientation differs from hook')
                 if final_review and footer.get('verdict') in ('APPROVE', 'APPROVE_WITH_FIXES'):
                     review = footer.get('documentation_review')
-                    require(isinstance(review, dict) and review.get('report') == report_ref
-                            and review.get('status') == 'confirmed' and explanation(review.get('notes')),
-                            'Richard must confirm the exact sealed documentation report with substantive notes')
+                    require(isinstance(review, dict), 'Richard must include a documentation_review object in the footer')
+                    require(review.get('report') == report_ref,
+                            'documentation_review.report must be the exact sealed report reference, not a copy or a different report')
+                    require(review.get('status') == 'confirmed',
+                            f"documentation_review.status must be the literal string 'confirmed' "
+                            f"(describes the reviewer's own act of confirming the report, not the report's own "
+                            f"'sealed' state); got {review.get('status')!r}")
+                    require(explanation(review.get('notes')), 'documentation_review.notes must be a substantive explanation (40+ characters) of what was confirmed, not a placeholder')
                     if 'documentation_review' in entry:
                         require(entry['documentation_review'] == review, 'pasted documentation review differs from hook')
                     confirmed_reviewers.add(entry.get('dispatch_id'))
