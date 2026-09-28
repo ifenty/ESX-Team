@@ -191,7 +191,7 @@ class TeamOperationsTests(unittest.TestCase):
             self.assertGreater(late['deadline'], clock.return_value)
         scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
         self.assertEqual(scope.get('deadline'), stored)
-        self.assertIn('minutes', scope['overruns'])
+        self.assertIn('calendar_minutes', scope['overruns'])
 
     def test_tool_hook_preserves_permission_checks_and_quotes_command(self):
         cap = budget.limits()
@@ -329,7 +329,9 @@ class TeamOperationsTests(unittest.TestCase):
         overruns = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']
         # soft_deadline is a per-turn liveness signal, so it is not expected here:
         # a turn launched after the nominal wall time still gets a future horizon.
-        self.assertEqual(set(overruns), {'minutes', 'corrections', 'usd',
+        # 'minutes' needs a dispatch log to measure effort from; with none present
+        # only the calendar span is observable. Both are distinct dimensions.
+        self.assertEqual(set(overruns), {'calendar_minutes', 'corrections', 'usd',
                                          'provider_overshoot', 'calls'})
         for dimension, entry in overruns.items():
             self.assertGreater(entry['observations'], 0, dimension)
@@ -355,14 +357,44 @@ class TeamOperationsTests(unittest.TestCase):
             # No turn_seconds: the horizon falls back to the nominal duration.
             fallback = budget.reserve(self.root, 'three', 'TEST', cap)
             self.assertGreater(fallback['deadline'], clock.return_value)
-        # The elapsed wall time is still recorded as an overrun.
-        self.assertIn('minutes', json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns'])
+        # The elapsed wall time is still recorded, as a calendar span.
+        self.assertIn('calendar_minutes', json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns'])
 
     def test_a_live_scope_deadline_still_bounds_a_longer_turn(self):
         """A still-valid nominal deadline keeps constraining the turn."""
         cap = budget.limits(override={'minutes': 10})
         reservation = budget.reserve(self.root, 'one', 'TEST', cap, turn_seconds=99_999)
         self.assertLess(reservation['deadline'], time.time() + 10 * 60 + 1)
+
+    def test_effort_is_summed_dispatch_duration_not_calendar_span(self):
+        """Regression: a multi-iteration issue must not accrue time spent elsewhere.
+
+        Measured in a real project: one issue reported 436.8 calendar minutes
+        against 92.3 minutes of actual dispatch, because its scope clock started at
+        the first dispatch two days earlier. Conflating the two made every overrun
+        an artifact.
+        """
+        cap = budget.limits(override={'minutes': 10})
+        log = self.state / 'dispatch_log.jsonl'
+        accounting.append(log, {'issue_id': 'TEST', 'duration_seconds': 4 * 60})
+        accounting.append(log, {'issue_id': 'TEST', 'duration_seconds': 5 * 60})
+        accounting.append(log, {'issue_id': 'OTHER', 'duration_seconds': 9999 * 60})
+        self.assertAlmostEqual(budget.scope_effort(self.root, 'issue:TEST'), 9, places=6)
+        first = budget.reserve(self.root, 'one', 'TEST', cap)
+        budget.settle(self.root, 'one', 0)
+        # Nine minutes of effort is inside a ten-minute expectation even long after
+        # the calendar deadline passed.
+        with patch.object(budget.time, 'time', return_value=first['deadline'] + 100_000):
+            budget.reserve(self.root, 'two', 'TEST', cap)
+        overruns = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']
+        self.assertNotIn('minutes', overruns)
+        self.assertIn('calendar_minutes', overruns)
+        # Real effort past the expectation is what records a minutes overrun.
+        accounting.append(log, {'issue_id': 'TEST', 'duration_seconds': 3 * 60})
+        budget.reserve(self.root, 'three', 'TEST', cap)
+        overruns = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']
+        self.assertAlmostEqual(overruns['minutes']['actual'], 12, places=6)
+        self.assertEqual(overruns['minutes']['expected'], 10)
 
     def test_repeated_crossing_updates_one_observation_rather_than_growing(self):
         """Monitoring must not itself become an unbounded cost."""

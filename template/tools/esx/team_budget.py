@@ -55,6 +55,34 @@ def observe(scope, dimension, expected, actual, detail):
     return entry
 
 
+def scope_effort(root, key):
+    """Summed dispatch duration for an issue scope, in minutes, or None.
+
+    This is the effort measure. Elapsed calendar time is recorded separately and
+    deliberately not conflated with it: a scope's clock starts at its first
+    dispatch, so an issue carried across iterations accrues every hour spent on
+    other work. Returns None when no dispatch record exists to measure.
+    """
+    if not key.startswith('issue:'):
+        return None
+    issue = key[len('issue:'):]
+    path = Path(root) / accounting.STATE / 'dispatch_log.jsonl'
+    if not path.is_file():
+        return None
+    total, seen = 0.0, False
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get('issue_id') == issue and accounting.number(row.get('duration_seconds')):
+            total += row['duration_seconds']
+            seen = True
+    return total / 60 if seen else None
+
+
 def limits(kind='investigation', override=None):
     value = dict(DEFAULTS[kind])
     if override: value.update(override)
@@ -99,10 +127,20 @@ def reserve(root, event, issue, budget, *, run=None, run_budget=None, correction
             if saved['limits'] != cap: raise ValueError('budget cannot change/reset during scope: ' + key)
             # Nominal expectations. Each exceeded dimension is recorded and the
             # work proceeds; only the loop's own max_iterations terminates a run.
+            # Effort is measured as summed dispatch duration, not calendar span.
+            # A scope's clock starts at its first dispatch and an issue worked
+            # across several iterations accrues every hour spent elsewhere, so
+            # elapsed time is not a measure of effort: one issue here reported 437
+            # calendar minutes against 92 minutes of actual dispatch.
+            effort = scope_effort(root, key)
+            if effort is not None and effort > cap['minutes']:
+                observe(saved, 'minutes', cap['minutes'], effort,
+                        'summed dispatch duration exceeds its expected allocation')
             deadline = saved.get('deadline', saved['started'] + cap['minutes'] * 60)
             if time.time() >= deadline:
-                observe(saved, 'minutes', cap['minutes'], (time.time() - saved['started']) / 60,
-                        'wall clock passed its expected allocation')
+                observe(saved, 'calendar_minutes', cap['minutes'], (time.time() - saved['started']) / 60,
+                        'elapsed time since this scope first dispatched; includes work on other issues '
+                        'and is not a measure of this issue effort')
             if correction > cap['corrections']:
                 observe(saved, 'corrections', cap['corrections'], correction,
                         'correction round exceeds its expected allocation; consider a diagnosis checkpoint')

@@ -40,9 +40,15 @@ Each launch reserves its expected cost before calling the provider, so the
 difference from actual usage can be measured. No provider spend cap is passed, so a
 turn is never truncated mid-work over a pricing estimate. Known usage settles the
 reservation; interrupted or missing usage retains it so a retry cannot
-double-count. Every exceeded expectation -- spend, wall clock, tool calls,
-correction rounds, provider overshoot -- is recorded under the scope's `overruns`
-with its expected value, observed magnitude and first/last observation time.
+double-count. Every exceeded expectation is recorded under the scope's
+`overruns` with its expected value, observed magnitude and first/last observation
+time. Effort and elapsed time are separate dimensions and must not be conflated:
+`minutes` measures **summed dispatch duration** for the issue, while
+`calendar_minutes` measures elapsed time since the scope first dispatched and
+therefore includes work done on other issues. An issue carried across iterations
+can show a large calendar span with modest effort -- one measured 437 calendar
+minutes against 92 minutes of actual dispatch -- so only `minutes` says anything
+about how much work an issue took.
 Repeated crossings of one dimension update that record rather than growing it, so
 monitoring cannot itself become a cost. Retrospectives report these overruns; that
 is how a wrong expectation gets corrected.

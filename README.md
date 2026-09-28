@@ -280,6 +280,26 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.2.2: separate effort from elapsed time, and say which budget ran out
+
+Two corrections to 1.2.x, both from an operator reading the output and asking what
+it meant.
+
+`ralph_stop.py` announced "The ESX work budget is exhausted" when it meant the
+loop's iteration budget. That read naturally while allocations were caps; with cost
+caps gone it reads as money. It now names the iteration budget and its limit, and
+states outright that cost and effort are measured rather than capped.
+
+The `minutes` dimension compared against elapsed time since a scope's first
+dispatch, so an issue carried across iterations accrued every hour spent
+elsewhere. Measured in a receiving project: one issue reported 436.8 calendar
+minutes against 92.3 minutes of actual dispatch, and another 136.4 against 28.6 --
+both "overruns" were artifacts, and raising the nominal allocation would have
+buried the measurement bug under a bigger number. Effort is now summed dispatch
+duration via `scope_effort`, and elapsed time is recorded separately as
+`calendar_minutes` with its meaning stated in the record. The nominal 120 minutes
+stays: measured effort across nine issues ran 21 to 92 minutes, well inside it.
+
 ## Version 1.2.1: an elapsed allocation must not hand back a past deadline
 
 Found by using 1.2.0 immediately: removing the refusal left `reserve` still

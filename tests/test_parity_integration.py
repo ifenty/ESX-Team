@@ -259,7 +259,7 @@ class ContinuationTests(unittest.TestCase):
                 budget.reserve(root,'past-expectation','TEAM-TEST-001',cap)
                 budget.settle(root,'past-expectation',0)
                 scope=json.loads(budget.file_for(root).read_text())['scopes']['issue:TEAM-TEST-001']
-                self.assertIn('minutes', scope['overruns'])
+                self.assertIn('calendar_minutes', scope['overruns'])
                 request={'issue':'TEAM-TEST-001','authorization_id':'fixture-owner-1','authorized_by':'Owner',
                          'evidence':'fixture owner directive','reason':'Continue measured partial work',
                          'expected_scope_sha256':budget.scope_digest(scope),'add_minutes':20}

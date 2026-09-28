@@ -200,11 +200,13 @@ def _step_locked(root, hook_input):
                 header = parsed['header'] + '\nnotification_finalizer: true'
                 atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
                 return {'decision': 'block', 'reason':
-                    'The ESX work budget is exhausted. This is one notification-only finalization turn. '
+                    f'The loop reached its iteration budget of {limit}. This is not a cost or spend limit: '
+                    'cost and effort are measured, never capped, and max_iterations is the only enforced '
+                    'terminal bound. This is one notification-only finalization turn. '
                     'Use esx-announce to deliver pending notifications and record receipts or concrete failures. '
-                    'Do not select issues, dispatch agents, run --next, or extend the budget. '
+                    'Do not select issues, dispatch agents, run --next, or start another loop. '
                     'Report unfinished work and undelivered events, then stop without a completion promise.',
-                    'systemMessage': 'ESX work complete for this budget; notification finalization only.'}
+                    'systemMessage': f'Loop iteration budget {limit} reached; notification finalization only.'}
         return archive(root, state, original, 'END', n, f'iteration budget {limit} reached')
     if parsed['promise']:
         try:
