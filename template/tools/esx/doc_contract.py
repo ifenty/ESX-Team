@@ -230,6 +230,75 @@ def validate_orientation(root, ref, issue, base_ref, role, fresh=True):
     return record
 
 
+def framework_supplied(root):
+    """Map framework path -> byte states this project's applied upgrades supplied.
+
+    An upgrade changes framework files, which land in every open issue's candidate
+    diff and would otherwise force each issue to disposition symbols it never
+    touched: one issue measured 18 of 18 targets attributable purely to an upgrade.
+    The applied deployment records name each file's before and result digests, so a
+    state an upgrade actually produced is provably framework-supplied rather than
+    project-authored.
+
+    A locally patched framework file does NOT appear here, because its bytes match
+    no recorded upgrade state, so it still requires an explicit judgment.
+    """
+    supplied = {}
+    folder = Path(root) / 'ESX-team-local/deployments'
+    if not folder.is_dir():
+        return supplied
+    for record_path in sorted(folder.glob('*.json')):
+        try:
+            record = json.loads(record_path.read_text())
+        except (ValueError, OSError):
+            continue
+        if record.get('status') != 'applied':
+            continue
+        for entry in record.get('files', []):
+            if entry.get('ownership') != 'framework' or not entry.get('path'):
+                continue
+            for key in ('before_sha256', 'result_sha256', 'master_sha256'):
+                value = entry.get(key)
+                if value:
+                    supplied.setdefault(entry['path'], {})[value] = {
+                        'deployment_id': record.get('deployment_id'),
+                        'record': str(record_path.relative_to(Path(root))),
+                        'from_version': record.get('from_version')}
+    return supplied
+
+
+def upgrade_attribution(root, target, base_files, current, supplied=None):
+    """Return deployment provenance when a target changed only through an upgrade.
+
+    Both endpoints must be states a recorded upgrade supplied; a project edit on
+    either side breaks the chain and the target needs a real judgment.
+    """
+    supplied = framework_supplied(root) if supplied is None else supplied
+    path = target.split('::')[0]
+    states = supplied.get(path)
+    if not states:
+        return None
+    before = (base_files.get(path) or {}).get('sha256')
+    after = (current.get(path) or {}).get('sha256')
+    if not before or not after or before == after:
+        return None
+    if before not in states or after not in states:
+        return None
+    return dict(states[after], path=path, before_sha256=before, after_sha256=after)
+
+
+def prefill(root, row, base_files, current, supplied=None):
+    """Blank a disposition for judgment, or attribute it to a recorded upgrade."""
+    provenance = upgrade_attribution(root, row['target'], base_files, current, supplied)
+    if provenance is None:
+        return {**row, 'action': '', 'reason': '', 'references': []}
+    return {**row, 'action': 'upgrade_supplied', 'reason': (
+        'Framework file supplied by a recorded ESX upgrade, not authored by this issue. Both the baseline and '
+        'current bytes are states deployment ' + str(provenance['deployment_id']) + ' recorded, so this target '
+        'carries no project judgment: its documentation is the upgrade\'s own. See ' + provenance['record'] + '.'),
+        'references': [], 'deployment': provenance}
+
+
 def draft(root, issue, base_ref, previous_ref=None):
     """Build complete coverage, optionally retaining measured unchanged judgments.
 
@@ -242,7 +311,7 @@ def draft(root, issue, base_ref, previous_ref=None):
     payload = envelope('documentation', issue)
     payload.update(baseline=base_ref, candidate=digest(current),
                    changes=changes(base['files'], current),
-                   dispositions=[{**r, 'action': '', 'reason': '', 'references': []}
+                   dispositions=[prefill(root, r, base['files'], current)
                                  for r in changes(base['files'], current)],
                    map_delta={'status': '', 'reason': '', 'references': []})
     if previous_ref:
@@ -325,9 +394,23 @@ def validate_report(root, report, issue, base_ref, current=None):
         target = row['target']
         require(row.get('change') == expected_by_target[target], f'{target}: incorrect change kind')
         action = row.get('action')
-        require(action in ('updated', 'reviewed_unchanged', 'removed'), f'{target}: missing documentation action')
+        require(action in ('updated', 'reviewed_unchanged', 'removed', 'upgrade_supplied'),
+                f'{target}: missing documentation action')
         require(action != 'removed' or row['change'] == 'removed', f'{target}: only a removed target can use removed')
         require(explanation(row.get('reason')), f'{target}: explain the resulting contract or why its descriptions remain accurate')
+        if action == 'upgrade_supplied':
+            # Attribution must be re-derived, never accepted from the report: a
+            # claimed upgrade origin is exactly what a project edit could forge.
+            proven = upgrade_attribution(root, target, base['files'], current)
+            require(proven is not None,
+                    f'{target}: upgrade_supplied requires both byte states to come from a recorded applied '
+                    'upgrade; a locally edited framework file needs a real judgment')
+            require(row.get('deployment') == proven, f'{target}: upgrade provenance differs from the deployment record')
+            # Deliberately not added to `refs`: deployment records live under the
+            # ignored ESX-team-local/ tree, so sealing a reference to one would
+            # break in a fresh clone. Provenance is re-derived here instead, and
+            # absent records fail validation loudly rather than passing silently.
+            continue
         links = row.get('references')
         require(isinstance(links, list) and links and all(isinstance(r, str) for r in links), f'{target}: documentation references are required')
         for link in links:

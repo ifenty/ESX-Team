@@ -280,6 +280,33 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.3.0: an upgrade no longer makes every open issue harder to close
+
+`FRAMEWORK_PATHS` includes `tools/esx` and participates in the inventory a
+candidate diff is computed over, so upgrading ESX put every changed framework
+symbol into the candidate diff of every open project issue. Measured in a receiving
+project immediately after a 1.1.1 to 1.2.2 upgrade with six issues open: each
+gained 18 to 20 framework-owned disposition targets, and one gained **18 of 18** --
+its own deliverables sat outside the scanned roots, so closing it would have meant
+a report-splitting issue certifying documentation for `team_budget.py::observe`.
+Before that upgrade the same issue's diff was a single target.
+
+Dispositions now carry an `upgrade_supplied` action. `doc_contract.draft` fills it
+in automatically when both the baseline and current bytes of a framework file are
+states a recorded applied upgrade produced, citing the deployment record that
+supplies them, so no judgment is asked for work the issue did not do.
+
+The integrity property is preserved rather than traded away. `validate_report`
+re-derives the attribution from `ESX-team-local/deployments/` and never trusts the
+claim in the report, because a claimed upgrade origin is exactly what a local edit
+could forge. A genuinely patched framework file matches no recorded upgrade state
+on at least one endpoint, so it still requires an explicit judgment -- which is how
+this project's own two framework patches reached review before being upstreamed
+into 1.1.1. Unapplied previews and project-owned files never attribute. The
+deployment record is deliberately not sealed into `references`, since it lives
+under the ignored `ESX-team-local/` tree; absent records fail validation loudly
+instead of passing silently.
+
 ## Version 1.2.2: separate effort from elapsed time, and say which budget ran out
 
 Two corrections to 1.2.x, both from an operator reading the output and asking what

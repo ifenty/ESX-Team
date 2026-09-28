@@ -22,6 +22,7 @@ spec = importlib.util.spec_from_file_location('esx_deploy', KIT / 'deploy.py')
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
 sys.path.insert(0, str(KIT / 'template/tools/esx'))
+import doc_contract
 import loop_gate
 import project
 import workflow_records as records
@@ -107,6 +108,67 @@ class IndependentCheckEvidenceMessageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'verify.py'):
                 verify.load_evidence(Path(tmp), {'path': '', 'sha256': ''})
 
+
+
+class UpgradeAttributionTests(unittest.TestCase):
+    """A recorded upgrade must not make every open issue harder to close.
+
+    FRAMEWORK_PATHS participates in the candidate diff, so upgrading ESX lands its
+    changed symbols in every open issue's dispositions. Measured in a receiving
+    project: each of six open issues gained 18-20 framework targets, and one gained
+    18 of 18. Attribution removes that noise without weakening review of a genuine
+    local framework patch.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.records = self.root / 'ESX-team-local/deployments'
+        self.records.mkdir(parents=True)
+        self.path = 'tools/esx/team_budget.py'
+
+    def record(self, before, after, status='applied', ownership='framework'):
+        (self.records / '20260928T000000Z-upgrade-test.json').write_text(json.dumps({
+            'status': status, 'deployment_id': 'upgrade-test', 'from_version': '1.1.1',
+            'files': [{'path': self.path, 'ownership': ownership, 'action': 'update',
+                       'before_sha256': before, 'result_sha256': after, 'master_sha256': after}]}))
+
+    def test_both_endpoints_from_a_recorded_upgrade_are_attributed(self):
+        self.record('a' * 64, 'b' * 64)
+        found = doc_contract.upgrade_attribution(
+            self.root, self.path + '::reserve', {self.path: {'sha256': 'a' * 64}}, {self.path: {'sha256': 'b' * 64}})
+        self.assertIsNotNone(found)
+        self.assertEqual(found['deployment_id'], 'upgrade-test')
+        self.assertEqual((found['before_sha256'], found['after_sha256']), ('a' * 64, 'b' * 64))
+
+    def test_a_local_edit_is_not_attributed(self):
+        """The integrity property: a project patch to a framework file still needs judgment."""
+        self.record('a' * 64, 'b' * 64)
+        self.assertIsNone(doc_contract.upgrade_attribution(
+            self.root, self.path + '::reserve', {self.path: {'sha256': 'a' * 64}}, {self.path: {'sha256': 'c' * 64}}))
+        # Nor when the baseline itself was a local state the upgrade never produced.
+        self.assertIsNone(doc_contract.upgrade_attribution(
+            self.root, self.path + '::reserve', {self.path: {'sha256': 'd' * 64}}, {self.path: {'sha256': 'b' * 64}}))
+
+    def test_unapplied_or_project_owned_records_do_not_attribute(self):
+        self.record('a' * 64, 'b' * 64, status='preview')
+        base, cur = {self.path: {'sha256': 'a' * 64}}, {self.path: {'sha256': 'b' * 64}}
+        self.assertIsNone(doc_contract.upgrade_attribution(self.root, self.path + '::reserve', base, cur))
+        self.record('a' * 64, 'b' * 64, ownership='project')
+        self.assertIsNone(doc_contract.upgrade_attribution(self.root, self.path + '::reserve', base, cur))
+
+    def test_prefill_marks_attributed_targets_and_blanks_the_rest(self):
+        self.record('a' * 64, 'b' * 64)
+        base = {self.path: {'sha256': 'a' * 64}, 'src/model.py': {'sha256': 'e' * 64}}
+        cur = {self.path: {'sha256': 'b' * 64}, 'src/model.py': {'sha256': 'f' * 64}}
+        attributed = doc_contract.prefill(self.root, {'target': self.path + '::reserve', 'change': 'modified'}, base, cur)
+        self.assertEqual(attributed['action'], 'upgrade_supplied')
+        self.assertIn('deployment', attributed)
+        self.assertGreaterEqual(len(attributed['reason']), 40)
+        project_target = doc_contract.prefill(self.root, {'target': 'src/model.py::step', 'change': 'modified'}, base, cur)
+        self.assertEqual(project_target['action'], '')
+        self.assertNotIn('deployment', project_target)
 
 class SelfAssessmentNoticeTests(unittest.TestCase):
     """Fix 7: a periodic, un-skippable reminder once the lessons mechanism goes stale."""
