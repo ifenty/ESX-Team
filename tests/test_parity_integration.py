@@ -108,6 +108,14 @@ class ParityTests(unittest.TestCase):
         text = brief.build(self.root, 'bob', self.fixture.issue, 'Qualify the unchanged diffusion update and run the Fourier and mass checks.')
         self.assertIn('--role bob', text)
         self.assertIn('correction_round', text)
+        # The reseal instruction is emitted automatically, naming the oriented
+        # targets, rather than depending on the coordinator remembering it.
+        self.assertIn('Reseal before reporting', text)
+        self.assertIn('FINAL steps after your last edit', text)
+        self.assertIn('src/diffusion.py::step', text.split('Reseal before reporting')[1])
+        # Allocations are stated as expectations, not caps.
+        self.assertIn('recorded expectations, not caps', text)
+        self.assertNotIn('At 80% of calls/time', text)
         with contextlib.redirect_stderr(io.StringIO()):
             nav = doc_contract.navigate(self.root, self.fixture.issue, start['maintenance']['baseline'], 'bob',
                 'docs/code_map.md#pipeline', ['src/diffusion.py::step','tests/check_diffusion.py::<module>'],
@@ -121,9 +129,15 @@ class ParityTests(unittest.TestCase):
         turn = self.root/project.STATE/'agent_runtime/sessions'/event['session_id']/'turns'/event['event_id']
         self.assertEqual(json.loads((turn/'handoff.json').read_text())['constraints'], [])
         invocation = json.loads((turn/'invocation.json').read_text())['argv']
-        self.assertIn('--max-budget-usd', invocation)
+        # No provider spend cap is imposed; the reservation only records expected cost.
+        self.assertNotIn('--max-budget-usd', invocation)
         settings = json.loads(invocation[invocation.index('--settings')+1])
         self.assertIn('PreToolUse', settings['hooks'])
+        # Recovery reads whether the turn left durable work behind, rather than
+        # inferring it from a bare status.
+        self.assertIn('source_changed_during_turn', event)
+        self.assertFalse(event['source_changed_during_turn'])
+        self.assertEqual(event['source_signature_at_finish'], event['source_signature_at_dispatch'])
         self.assertEqual(accounting.summary(self.root)['reported_usd'], 0)
         bad = dict(footer, summary=[])
         self.assertTrue(footer_contract.validate(self.root, 'bob', bad, self.fixture.issue, 0, start))
@@ -241,8 +255,11 @@ class ContinuationTests(unittest.TestCase):
             with patch.object(budget.time, 'time', return_value=1000):
                 budget.reserve(root,'unknown','TEAM-TEST-001',cap);budget.settle(root,'unknown',None)
             with patch.object(budget.time, 'time', return_value=3000):
-                with self.assertRaises(budget.Exhausted): budget.reserve(root,'blocked','TEAM-TEST-001',cap)
+                # Allocations are expectations: the launch proceeds and the overrun is recorded.
+                budget.reserve(root,'past-expectation','TEAM-TEST-001',cap)
+                budget.settle(root,'past-expectation',0)
                 scope=json.loads(budget.file_for(root).read_text())['scopes']['issue:TEAM-TEST-001']
+                self.assertIn('minutes', scope['overruns'])
                 request={'issue':'TEAM-TEST-001','authorization_id':'fixture-owner-1','authorized_by':'Owner',
                          'evidence':'fixture owner directive','reason':'Continue measured partial work',
                          'expected_scope_sha256':budget.scope_digest(scope),'add_minutes':20}

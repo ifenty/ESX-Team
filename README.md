@@ -280,6 +280,43 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.2.0: cost and effort are measured, never capped
+
+Allocations are now **nominal expectations, not caps**. `team_budget` no longer
+refuses anything: spend, wall clock, tool calls, correction rounds and provider
+overshoot are each recorded under a scope's `overruns` with the expected value, the
+observed magnitude and first/last observation times. Repeated crossings of one
+dimension update that record instead of growing it, so monitoring cannot itself
+become a cost. `Exhausted` is retained for callers that catch it but is never
+raised. The loop's own `max_iterations` is the single enforced terminal bound.
+
+No provider spend cap is passed either: `agent_runtime` and `team_driver` have
+dropped `--max-budget-usd` and `--max-ai-credits`, so a turn is never truncated
+mid-work over a pricing estimate. Copilot still requires an explicit credit/USD
+liability, not to cap a run but because its rate is unpublished and the cost is
+otherwise unmeasurable. `extend` no longer refuses a scope after a provider
+overshoot; it exists to correct an expectation that measurement has shown to be
+wrong, so later monitoring compares against a realistic baseline.
+
+This came out of a receiving project where a 74-cent provider overshoot on a
+12-dollar per-turn reservation set `breached` and made an issue permanently
+undispatchable with half its wall clock and 48 of 60 dollars unspent -- while four
+of five comparable turns had measured 11 to 19 dollars against the same 12-dollar
+expectation. The unrecoverable failure attached to the one quantity nobody controls.
+
+Two further fixes from the same project. A timed-out turn now records
+`source_changed_during_turn` and `source_signature_at_finish`, so recovery reads
+whether durable work landed rather than inferring it from a bare `failed` status;
+that distinction decides whether to resume or restart, and 12 of 115 role dispatches
+in that project timed out with their work already on disk. And `brief.py` now emits
+the reseal instruction automatically, naming the oriented targets, because an
+implementer who edits a target it was oriented on always invalidates its own
+receipt -- three iterations there closed partial for exactly that, including one
+where the coordinator explicitly told the implementer to skip it.
+
+Upgrading changes no project records. Existing installations need a preview/apply
+upgrade to receive these controls.
+
 ## Version 1.1.1: command-line qualification and configured archives
 
 Two fixes found by a receiving project that had patched framework code to work

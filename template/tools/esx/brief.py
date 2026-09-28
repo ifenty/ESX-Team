@@ -28,12 +28,25 @@ def build(root, role, issue, design, question=None, packet=None, correction_roun
         command += ['--doc', doc]
     command += ['--use', 'Inspect the assigned owner and test to evaluate the bounded design and independent acceptance question.']
     footer = footer_contract.example(root, role)
+    reseal = ('# Reseal before reporting\n'
+              'Implementation normally edits the very targets this orientation was taken against, which '
+              'invalidates the receipt and leaves an otherwise complete turn unreviewable. So as the FINAL steps '
+              'after your last edit, in this order: re-run the orientation command above with your own --use '
+              'sentence, then run ' + shlex.join([sys.executable, 'tools/esx/project.py', 'signature']) + '. Put '
+              'both results in your footer. Running them before your last edit does not count; the receipt must '
+              'bind to the bytes a reviewer will see.\nOriented targets, any of which triggers this:\n'
+              + '\n'.join('  ' + target for target in nav['targets']))
     footer.update(issue_id=issue, iteration_timestamp=start['timestamp'], correction_round=correction_round)
     return '\n\n'.join([
         '# ' + role + ': ' + issue, '# Design and acceptance\n' + design,
         '# Question\n' + (question or 'Implement the bounded design and report actual focused checks.'),
-        '# Budget\n' + json.dumps(start.get('budget', {})) + '\nAt 80% of calls/time return a partial handoff. Never reset an allocation.',
+        '# Expected cost and effort\n' + json.dumps(start.get('budget', {})) +
+        '\nThese are recorded expectations, not caps: nothing will stop you at them, and exceeding one is measured '
+        'rather than refused. Report a partial handoff when the work genuinely reaches a clean stopping point, not '
+        'because a number was reached. If you do exceed an expectation, say by how much and why -- that measurement '
+        'is how the expectation gets corrected.',
         '# Own orientation\n' + shlex.join(command) + '\nUse the returned orientation receipt, not the baseline.',
+        reseal,
         '# Evidence\nUse tools/esx/project.py signature for candidate_signature. Execute independent checks through '
         'tools/esx/verify.py --suite focused --owner DISPATCHER_AGENT_ID --fresh and cite its returned evidence. '
         'Richard confirms the exact sealed documentation reference in this packet: ' + json.dumps(packet),

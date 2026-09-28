@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Budgeted outer-loop driver with coordinator usage receipts and durable stops.
+"""Measured outer-loop driver with coordinator usage receipts and durable stops.
 
-Claude supports a native USD request cap. Copilot uses native AI credits: require
-an explicit maximum USD liability for that credit allocation, never assume a
-credit/dollar exchange rate. Unknown usage retains its reservation. Original run
-ID, deadline and cap survive restarts. Tests use injected fake executables.
+No provider spend cap is imposed. Allocations are nominal expectations recorded so
+an overrun can be reported; `max_iterations` is the loop's only enforced terminal
+bound. Copilot bills in AI credits with no published exchange rate, so an explicit
+USD liability per credit allocation is still required -- not to cap the run, but
+because otherwise its cost cannot be measured at all. Unknown usage retains its
+reservation so a retry cannot double-count. Original run ID, deadline and nominal
+allocation survive restarts. Tests use injected fake executables.
 """
 import argparse
 import datetime as dt
@@ -34,7 +37,8 @@ def _run(root, *, host='claude', model=None, max_passes=5, usd=30, minutes=120,
     if not state.exists(): raise ValueError('start the Ralph loop first')
     if host == 'copilot' and (not accounting.number(credits) or not credits or
                               not accounting.number(credit_usd_ceiling) or not credit_usd_ceiling):
-        raise ValueError('Copilot needs --max-ai-credits and --credit-usd-ceiling; USD cost is otherwise unknown')
+        raise ValueError('Copilot needs --max-ai-credits and --credit-usd-ceiling to measure cost at all; '
+                         'its credit/dollar rate is unpublished. These record the expected cost, they do not cap it')
     cap = budget.limits(override={'usd':usd,'minutes':minutes,'calls':calls,'turn_usd':turn_usd,'corrections':2})
     path = root / accounting.STATE / 'run_budget.json'
     if path.exists():
@@ -66,13 +70,10 @@ def _run(root, *, host='claude', model=None, max_passes=5, usd=30, minutes=120,
                          for r in accounting.rows(root/accounting.STATE/'loop_history.jsonl'))
             if active.get('id') and not closed:
                 issue = active['id']; issue_cap, _ = budget.assignment(root,issue)
-        try:
-            reservation = budget.reserve(root,event,issue or 'COORDINATOR-'+run_state['id'],issue_cap,
-                run=run_state['id'],run_budget=cap,
-                amount=credit_usd_ceiling if host == 'copilot' else min(turn_usd,issue_cap['turn_usd']))
-        except budget.Exhausted as exc:
-            retrospective.persist_debt(root, str(exc))
-            print(json.dumps({'status':'budget_exhausted','reason':str(exc)})); return 2
+        # Reserving records the expected cost; it never refuses a launch.
+        reservation = budget.reserve(root,event,issue or 'COORDINATOR-'+run_state['id'],issue_cap,
+            run=run_state['id'],run_budget=cap,
+            amount=credit_usd_ceiling if host == 'copilot' else min(turn_usd,issue_cap['turn_usd']))
         context = {'root':str(root),'folder':str(folder),'event_id':event,'tool_timeout':600}
         accounting.atomic(folder/'runtime_context.json',context)
         env = os.environ.copy(); env.pop('CLAUDECODE',None)
@@ -81,16 +82,13 @@ def _run(root, *, host='claude', model=None, max_passes=5, usd=30, minutes=120,
         if host == 'claude':
             hook = {'hooks':{'PreToolUse':[{'matcher':'.*','hooks':[{'type':'command',
                 'command':shlex.join([sys.executable,str(ROOT/'tools/esx/runtime_tool_hook.py')]),'timeout':10}]}]}}
+            # No --max-budget-usd: the reservation is a recorded expectation, not a cap.
             command = [host,'--print','--output-format','stream-json','--verbose',
-                       '--max-budget-usd',str(reservation['reserved_usd']),
                        '--settings',json.dumps(hook),
                        '--resume' if run_state.get('session_started') else '--session-id',run_state['coordinator_session_id']]
         else:
-            if reservation['reserved_usd'] < credit_usd_ceiling:
-                budget.settle(root,event,0)
-                raise budget.Exhausted('remaining USD reservation cannot cover selected Copilot credit ceiling')
             command = [host,'-p',prompt,'--session-id',run_state['coordinator_session_id'],
-                       '--max-ai-credits',str(credits),'--usage-output-file',str(folder/'usage.json')]
+                       '--usage-output-file',str(folder/'usage.json')]
         if model: command += ['--model',model]
         (folder/'prompt.txt').write_text(prompt)
         accounting.atomic(folder/'invocation.json', {'argv':command,'host':host,'model':model})

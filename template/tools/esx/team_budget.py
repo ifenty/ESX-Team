@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Atomic spend reservations shared by coordinator, children, resumes and repairs.
+"""Atomic cost and effort measurement shared by coordinator, children and repairs.
 
-Reserve a provider-enforced maximum BEFORE launch. Settle known usage afterward;
-unknown or interrupted usage retains its entire reservation, so a retry cannot
-silently spend it again. Scope identifiers and original deadlines are immutable.
-This bounds allocated spend; provider billing enforcement/overshoot is recorded,
-not misrepresented as a guarantee about an external invoice.
+These allocations are **nominal expectations, not caps**. Nothing here refuses a
+launch or a tool call. Every dimension that is exceeded -- spend, wall clock, tool
+calls, correction rounds, provider overshoot -- is recorded as a dated observation
+on the scope, with its magnitude, so a retrospective can report what an iteration
+actually cost against what was expected. The only enforced terminal bound in the
+kit is the loop's own `max_iterations`.
+
+Reserve before launch so a turn's expected cost is on record. Settle known usage
+afterward; unknown or interrupted usage retains its entire reservation, so a retry
+cannot silently double-count it. Scope identifiers and original deadlines stay
+immutable, because monitoring is worthless if the baseline moves. Provider billing
+overshoot is recorded, never misrepresented as a guarantee about an invoice.
 """
 from contextlib import contextmanager
 import fcntl
@@ -24,7 +31,28 @@ DEFAULTS = {
 
 
 class Exhausted(ValueError):
-    pass
+    """Retained for callers that still catch it. This module never raises it.
+
+    Allocations are monitoring expectations rather than caps, so an exceeded
+    dimension is recorded through `observe` instead of refusing the work.
+    """
+
+
+def observe(scope, dimension, expected, actual, detail):
+    """Record one dated overrun observation, once per dimension, on a scope.
+
+    Monitoring must not itself become a cost: repeated crossings of the same
+    dimension update the observed magnitude rather than appending unboundedly.
+    """
+    overruns = scope.setdefault('overruns', {})
+    entry = overruns.get(dimension)
+    if entry is None:
+        entry = {'dimension': dimension, 'expected': expected, 'first_observed_at': accounting.now(),
+                 'observations': 0}
+        overruns[dimension] = entry
+    entry.update(actual=actual, detail=detail, last_observed_at=accounting.now())
+    entry['observations'] += 1
+    return entry
 
 
 def limits(kind='investigation', override=None):
@@ -68,14 +96,20 @@ def reserve(root, event, issue, budget, *, run=None, run_budget=None, correction
         if event in ledger['reservations']: raise ValueError('event already reserved')
         for key, cap in scopes:
             saved = ledger['scopes'].setdefault(key, {'limits': cap, 'started': time.time(), 'calls': []})
-            if saved.get('breached'): raise Exhausted(key + ': provider exceeded its reservation')
             if saved['limits'] != cap: raise ValueError('budget cannot change/reset during scope: ' + key)
-            if time.time() >= saved.get('deadline', saved['started'] + cap['minutes'] * 60): raise Exhausted(key + ': wall budget exhausted')
-            if correction > cap['corrections']: raise Exhausted(key + ': correction budget exhausted; diagnose before continuing')
+            # Nominal expectations. Each exceeded dimension is recorded and the
+            # work proceeds; only the loop's own max_iterations terminates a run.
+            deadline = saved.get('deadline', saved['started'] + cap['minutes'] * 60)
+            if time.time() >= deadline:
+                observe(saved, 'minutes', cap['minutes'], (time.time() - saved['started']) / 60,
+                        'wall clock passed its expected allocation')
+            if correction > cap['corrections']:
+                observe(saved, 'corrections', cap['corrections'], correction,
+                        'correction round exceeds its expected allocation; consider a diagnosis checkpoint')
             spent = sum(r['charged_usd'] for r in ledger['reservations'].values() if key in r['scopes'])
-            available = cap['usd'] - spent
-            if available <= 1e-8: raise Exhausted(key + ': spend budget exhausted')
-            amount = min(amount, available)
+            if spent + amount > cap['usd'] + 1e-8:
+                observe(saved, 'usd', cap['usd'], spent + amount,
+                        'reserved spend exceeds its expected allocation')
         deadlines = [ledger['scopes'][k].get('deadline', ledger['scopes'][k]['started'] + c['minutes'] * 60) for k, c in scopes]
         soft_deadlines = [ledger['scopes'][k].get('soft_deadline', ledger['scopes'][k]['started'] + c['minutes'] * 48) for k,c in scopes]
         if turn_seconds is not None:
@@ -99,9 +133,12 @@ def settle(root, event, reported):
         entry.update(reported_usd=reported, charged_usd=reported if reported is not None else entry['reserved_usd'],
                      status='settled' if reported is not None else 'unknown_reserved')
         entry['provider_overshoot'] = reported is not None and reported > entry['reserved_usd'] + 1e-8
-        # A provider breach consumes the remaining scope; never authorize another call.
+        # Recorded, never enforced: a provider charging more than expected is
+        # information about the estimate, not grounds for refusing further work.
         if entry['provider_overshoot']:
-            for key in entry['scopes']: ledger['scopes'][key]['breached'] = True
+            for key in entry['scopes']:
+                observe(ledger['scopes'][key], 'provider_overshoot', entry['reserved_usd'], reported,
+                        'provider reported more than this turn reserved')
     return entry
 
 
@@ -110,13 +147,20 @@ def allow_tool(root, event, tool_id):
         entry = ledger['reservations'][event]
         identity = event + ':' + tool_id
         if all(identity in ledger['scopes'][k]['calls'] for k in entry['scopes']): return
-        if entry.get('call_limit') and len(entry['calls']) >= max(1,int(entry['call_limit']*.8)):
-            raise Exhausted('80% turn call budget reached: return your measured partial handoff now')
+        # Effort monitoring only: crossing an expectation is recorded, never refused.
+        if entry.get('call_limit') and len(entry['calls']) >= entry['call_limit']:
+            for key in entry['scopes']:
+                observe(ledger['scopes'][key], 'turn_calls', entry['call_limit'], len(entry['calls']) + 1,
+                        'turn made more tool calls than expected')
         for key in entry['scopes']:
             scope = ledger['scopes'][key]
-            if scope.get('breached'): raise Exhausted('provider exceeded reservation')
-            if time.time() >= entry['soft_deadline'] or len(scope['calls']) >= int(scope['limits']['calls'] * .8):
-                raise Exhausted('80% budget reached: return a partial handoff with completed evidence and next action')
+            if time.time() >= entry['soft_deadline']:
+                observe(scope, 'soft_deadline', scope['limits']['minutes'],
+                        (time.time() - scope['started']) / 60,
+                        'turn continued past the point a partial handoff was expected')
+            if len(scope['calls']) >= scope['limits']['calls']:
+                observe(scope, 'calls', scope['limits']['calls'], len(scope['calls']) + 1,
+                        'scope made more tool calls than expected')
         identity = event + ':' + tool_id
         for key in entry['scopes']:
             calls = ledger['scopes'][key]['calls']
@@ -146,11 +190,17 @@ def scope_digest(scope):
 
 
 def extend(root, authorization, apply=False):
-    """Preview/apply a recorded Owner allocation; never reset prior spend or calls.
+    """Preview/apply a recorded Owner revision of the nominal allocation.
+
+    Allocations no longer gate work, so this is not a way to unblock anything. It
+    exists to correct an expectation that measurement has shown to be wrong, so
+    that later monitoring compares against a realistic baseline instead of
+    reporting a permanent overrun. Prior spend and calls are never reset.
 
     Authorization is an operator-supplied hashed JSON reference, not something a
     role may invent. CAS and unique authorization IDs make stale/repeated requests
-    safe. Active reservations and provider breaches require resolution first.
+    safe. Active reservations still require resolution first, because revising a
+    baseline mid-turn would make that turn's own measurement uninterpretable.
     """
     from process_evidence import reference
     request = json.loads(reference(root, authorization))
@@ -175,8 +225,6 @@ def extend(root, authorization, apply=False):
             return {'status': 'already_applied', 'scope': scope}
         if scope_digest(scope) != request['expected_scope_sha256']:
             raise ValueError('scope changed since authorization; refresh its expected hash')
-        if scope.get('breached'):
-            raise ValueError('provider breach requires reconciliation, not a budget extension')
         if any(key in r['scopes'] and r['status'] == 'reserved' for r in ledger['reservations'].values()):
             raise ValueError('cannot extend with active reservations')
         updated = json.loads(json.dumps(scope))

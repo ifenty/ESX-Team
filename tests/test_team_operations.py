@@ -109,51 +109,69 @@ class TeamOperationsTests(unittest.TestCase):
         self.assertEqual(retro.recurring_issues(self.root, {'FIX'}), ['FIX'])
         self.assertEqual(retro.recurring_issues(self.root, set()), [])
 
-    def test_atomic_reservations_do_not_oversubscribe(self):
+    def test_concurrent_reservations_are_atomic_and_overrun_is_recorded_once(self):
+        """Allocations are expectations: every launch proceeds, the overrun is recorded."""
         cap = budget.limits('scientific_small', {'usd': 5, 'turn_usd': 2})
 
         def reserve(i):
-            try:
-                return budget.reserve(self.root, str(i), 'TEST', cap)['reserved_usd']
-            except budget.Exhausted:
-                return 0
+            return budget.reserve(self.root, str(i), 'TEST', cap)['reserved_usd']
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
             amounts = list(pool.map(reserve, range(64)))
-        self.assertEqual(sum(amounts), 5)
-        self.assertEqual(sum((a > 0 for a in amounts)), 3)
+        self.assertEqual(len(amounts), 64)
+        self.assertTrue(all(a == 2 for a in amounts), amounts)
+        ledger = json.loads(budget.file_for(self.root).read_text())
+        self.assertEqual(len(ledger['reservations']), 64)
+        overrun = ledger['scopes']['issue:TEST']['overruns']['usd']
+        self.assertEqual(overrun['expected'], 5)
+        self.assertGreater(overrun['actual'], 5)
+        self.assertEqual(overrun['dimension'], 'usd')
 
-    def test_unknown_charge_remains_reserved_on_retry(self):
+    def test_unknown_charge_is_retained_and_not_double_counted(self):
         cap = budget.limits(override={'usd': 2, 'turn_usd': 2})
         budget.reserve(self.root, 'one', 'TEST', cap)
         budget.settle(self.root, 'one', None)
-        with self.assertRaises(budget.Exhausted):
-            budget.reserve(self.root, 'two', 'TEST', cap)
+        self.assertEqual(budget.reserve(self.root, 'two', 'TEST', cap)['reserved_usd'], 2)
+        ledger = json.loads(budget.file_for(self.root).read_text())
+        # The unknown charge keeps its full reservation, so the retry is measured
+        # as additional spend rather than silently reusing the first allocation.
+        self.assertEqual(ledger['reservations']['one']['status'], 'unknown_reserved')
+        self.assertEqual(ledger['reservations']['one']['charged_usd'], 2)
+        self.assertEqual(ledger['scopes']['issue:TEST']['overruns']['usd']['actual'], 4)
 
     def test_run_budget_spans_different_issues_and_repairs(self):
         cap = budget.limits(override={'usd': 3, 'turn_usd': 2})
         budget.reserve(self.root, 'one', 'A', cap, run='RUN', run_budget=cap)
         budget.settle(self.root, 'one', 2)
         r = budget.reserve(self.root, 'repair', 'A', cap, run='RUN', run_budget=cap)
-        self.assertEqual(r['reserved_usd'], 1)
-        with self.assertRaises(budget.Exhausted):
-            budget.reserve(self.root, 'two', 'B', cap, run='RUN', run_budget=cap)
+        self.assertEqual(r['reserved_usd'], 2)
+        budget.reserve(self.root, 'two', 'B', cap, run='RUN', run_budget=cap)
+        # The shared run scope records the aggregate overrun across both issues.
+        ledger = json.loads(budget.file_for(self.root).read_text())
+        self.assertIn('usd', ledger['scopes']['run:RUN']['overruns'])
+        self.assertEqual(ledger['scopes']['run:RUN']['overruns']['usd']['expected'], 3)
 
-    def test_provider_overshoot_stops_further_launches(self):
+    def test_provider_overshoot_is_recorded_and_does_not_stop_launches(self):
+        """A cents-scale provider variance must not strand an issue's remaining work."""
         cap = budget.limits()
         budget.reserve(self.root, 'one', 'TEST', cap, amount=1)
-        budget.settle(self.root, 'one', 1.01)
-        with self.assertRaises(budget.Exhausted):
-            budget.reserve(self.root, 'two', 'TEST', cap)
+        settlement = budget.settle(self.root, 'one', 1.01)
+        self.assertTrue(settlement['provider_overshoot'])
+        self.assertTrue(budget.reserve(self.root, 'two', 'TEST', cap)['reserved_usd'])
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertNotIn('breached', scope)
+        recorded = scope['overruns']['provider_overshoot']
+        self.assertEqual((recorded['expected'], recorded['actual']), (1, 1.01))
 
-    def test_tool_budget_stops_at_eighty_percent_and_is_idempotent(self):
+    def test_tool_calls_are_counted_idempotently_and_overrun_is_recorded(self):
         cap = budget.limits(override={'calls': 5})
         budget.reserve(self.root, 'one', 'TEST', cap)
         budget.allow_tool(self.root, 'one', 'a')
         budget.allow_tool(self.root, 'one', 'a')
-        for ident in ('b', 'c', 'd'):
+        for ident in ('b', 'c', 'd', 'e', 'f'):
             budget.allow_tool(self.root, 'one', ident)
-        with self.assertRaises(budget.Exhausted):
-            budget.allow_tool(self.root, 'one', 'e')
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertEqual(len(scope['calls']), 6)
+        self.assertEqual(scope['overruns']['calls']['expected'], 5)
 
     def test_deadlines_and_corrections_do_not_reset(self):
         cap = budget.limits('scientific_small')
@@ -161,11 +179,15 @@ class TeamOperationsTests(unittest.TestCase):
         budget.settle(self.root, 'one', 0)
         second = budget.reserve(self.root, 'two', 'TEST', cap, correction=1)
         self.assertEqual(first['deadline'], second['deadline'])
-        with self.assertRaises(budget.Exhausted):
-            budget.reserve(self.root, 'three', 'TEST', cap, correction=2)
+        budget.reserve(self.root, 'three', 'TEST', cap, correction=2)
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertEqual(scope['overruns']['corrections']['expected'], 1)
+        self.assertEqual(scope['overruns']['corrections']['actual'], 2)
         with patch.object(budget.time, 'time', return_value=first['deadline'] + 1):
-            with self.assertRaises(budget.Exhausted):
-                budget.reserve(self.root, 'late', 'TEST', cap)
+            late = budget.reserve(self.root, 'late', 'TEST', cap)
+        self.assertEqual(late['deadline'], first['deadline'])
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertIn('minutes', scope['overruns'])
 
     def test_tool_hook_preserves_permission_checks_and_quotes_command(self):
         cap = budget.limits()
@@ -234,26 +256,28 @@ class TeamOperationsTests(unittest.TestCase):
         self.assertEqual(accounting.summary(self.root)['reported_usd'], 0)
         self.assertEqual(accounting.summary(self.root)['unknown_cost_event_ids'], [])
 
-    def test_tool_duplicate_at_soft_limit_is_still_idempotent(self):
+    def test_tool_duplicate_past_expectation_is_still_idempotent(self):
         cap = budget.limits(override={'calls': 5})
         budget.reserve(self.root, 'one', 'TEST', cap)
-        for identity in ('a', 'b', 'c', 'd', 'd'):
+        for identity in ('a', 'b', 'c', 'd', 'd', 'e', 'f', 'f'):
             budget.allow_tool(self.root, 'one', identity)
-        with self.assertRaises(budget.Exhausted):
-            budget.allow_tool(self.root, 'one', 'e')
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertEqual(len(scope['calls']), len(set(scope['calls'])))
+        self.assertEqual(len(scope['calls']), 6)
 
     def test_turn_time_and_calls_are_bounded_inside_larger_issue(self):
         cap = budget.limits(override={'minutes': 60, 'calls': 500})
         reservation = budget.reserve(self.root, 'one', 'TEST', cap, turn_seconds=100, turn_calls=5)
         self.assertLess(reservation['deadline'], time.time() + 101)
-        for tool in ('a', 'b', 'c', 'd'):
+        for tool in ('a', 'b', 'c', 'd', 'e', 'f'):
             budget.allow_tool(self.root, 'one', tool)
-        with self.assertRaisesRegex(budget.Exhausted, 'turn call'):
-            budget.allow_tool(self.root, 'one', 'e')
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertEqual(scope['overruns']['turn_calls']['expected'], 5)
         budget.reserve(self.root, 'two', 'TEST', cap, turn_seconds=100, turn_calls=50)
         with patch.object(budget.time, 'time', return_value=reservation['deadline'] - 10):
-            with self.assertRaises(budget.Exhausted):
-                budget.allow_tool(self.root, 'two', 'a')
+            budget.allow_tool(self.root, 'two', 'a')
+        scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertIn('soft_deadline', scope['overruns'])
 
     def test_copilot_adapter_uses_modified_args_without_granting_permission(self):
         budget.reserve(self.root, 'one', 'TEST', budget.limits())
@@ -287,6 +311,35 @@ class TeamOperationsTests(unittest.TestCase):
         self.assertTrue(retro.recurrence_errors(self.root, current, {'FIX'}))
         current['solutions'].append({'problem': 0, 'action': 'filed', 'reference': 'FIX'})
         self.assertEqual(retro.recurrence_errors(self.root, current, {'FIX'}), [])
+
+    def test_no_dimension_ever_refuses_work(self):
+        """The contract of a monitoring-only allocation: exceed everything, refuse nothing."""
+        cap = budget.limits(override={'minutes': 1, 'usd': 1, 'calls': 1, 'corrections': 0, 'turn_usd': 1})
+        first = budget.reserve(self.root, 'one', 'TEST', cap)
+        budget.settle(self.root, 'one', 99.0)
+        with patch.object(budget.time, 'time', return_value=first['deadline'] + 10_000):
+            later = budget.reserve(self.root, 'two', 'TEST', cap, correction=7)
+            budget.allow_tool(self.root, 'two', 'a')
+            budget.allow_tool(self.root, 'two', 'b')
+        self.assertEqual(later['reserved_usd'], 1)
+        overruns = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']
+        self.assertEqual(set(overruns), {'minutes', 'corrections', 'usd', 'provider_overshoot',
+                                         'soft_deadline', 'calls'})
+        for dimension, entry in overruns.items():
+            self.assertGreater(entry['observations'], 0, dimension)
+            self.assertIn('first_observed_at', entry)
+            self.assertIn('detail', entry)
+
+    def test_repeated_crossing_updates_one_observation_rather_than_growing(self):
+        """Monitoring must not itself become an unbounded cost."""
+        cap = budget.limits(override={'calls': 1})
+        budget.reserve(self.root, 'one', 'TEST', cap)
+        for identity in 'abcdefgh':
+            budget.allow_tool(self.root, 'one', identity)
+        entry = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']['calls']
+        self.assertEqual(entry['observations'], 7)
+        self.assertEqual(entry['expected'], 1)
+        self.assertEqual(entry['actual'], 8)
 
     def test_phase_is_recorded_even_when_work_fails(self):
         with self.assertRaises(RuntimeError):

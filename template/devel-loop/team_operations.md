@@ -23,32 +23,47 @@ python3 tools/esx/loop_control.py run
 python3 tools/esx/team_driver.py --host claude --usd 30 --minutes 120 --calls 500 --turn-usd 5
 ```
 
-Use the project's Python environment. Set limits within actual authorization.
+Use the project's Python environment. Allocations are **nominal expectations, not
+caps**: nothing in `team_budget` refuses a launch, a tool call or a correction
+round. The loop's own `max_iterations` is the single enforced terminal bound.
 The driver owns one retained coordinator session and a shared run ledger. Retained
-children, resumes and corrections charge the same run and issue scopes. Restart
-uses the original identifiers, caps and deadlines. The tighter limit wins. Never
-start this driver inside another active coordinator or run overlapping owners.
-Interactive `/esx-loop` remains available; it cannot meter or cap the host session's
-external bill. Its accounting reports missing coordinator coverage. Native
-subagents similarly lack enforceable per-turn reservations and report unknown
-costs; use the retained CLI path when spending must be bounded. The Claude adapter
-is ESX's supported path. Any alternate host requires separate hook qualification.
+children, resumes and corrections record against the same run and issue scopes.
+Restart uses the original identifiers and deadlines, because a moving baseline
+makes measurement meaningless. Never start this driver inside another active
+coordinator or run overlapping owners. Interactive `/esx-loop` remains available;
+it cannot meter the host session's external bill, and its accounting reports
+missing coordinator coverage. Native subagents likewise report unknown costs; use
+the retained CLI path when spending must be measured. The Claude adapter is ESX's
+supported path. Any alternate host requires separate hook qualification.
 
-Each launch reserves its maximum before calling the provider. Known usage settles
-it; interrupted/missing usage retains the reservation. Provider overshoot stops
-further launches. Time/tool limits request a partial handoff at 80%; the hard
-process timeout ends a hung turn. `agent_runtime.py start/followup` accepts
-`--timeout`, `--tool-timeout` (600 seconds by default) and `--max-tool-calls` (60).
-Bash tools run in separate process groups so one hung command cannot kill another
-healthy assignment. Permission checks remain enabled. No limit reset is a recovery.
+Each launch reserves its expected cost before calling the provider, so the
+difference from actual usage can be measured. No provider spend cap is passed, so a
+turn is never truncated mid-work over a pricing estimate. Known usage settles the
+reservation; interrupted or missing usage retains it so a retry cannot
+double-count. Every exceeded expectation -- spend, wall clock, tool calls,
+correction rounds, provider overshoot -- is recorded under the scope's `overruns`
+with its expected value, observed magnitude and first/last observation time.
+Repeated crossings of one dimension update that record rather than growing it, so
+monitoring cannot itself become a cost. Retrospectives report these overruns; that
+is how a wrong expectation gets corrected.
 
-For an expired issue allocation use `team_budget.py inspect --issue UUID`, then
-`team_budget.py extend --authorization path#sha256` to preview an actual Owner
-instruction. The JSON includes issue, authorized_by=Owner, authorization_id,
-evidence, reason, expected_scope_sha256, positive add_minutes and optional
-nonnegative add_usd/add_calls/add_corrections. Add `--apply` only with existing
-authorization. The same request is idempotent and retains prior spend, unknown
-charges and calls. It cannot extend a run cap or conceal a provider breach.
+The hard process timeout still ends a hung turn: that is a liveness guard, not a
+cost cap. `agent_runtime.py start/followup` accepts `--timeout`, `--tool-timeout`
+(600 seconds by default) and `--max-tool-calls` (60). A timed-out turn records
+`source_changed_during_turn`, so recovery reads whether durable work landed instead
+of guessing from a bare `failed` status -- resume such a turn with `followup`
+rather than restarting it. Bash tools run in separate process groups so one hung
+command cannot kill another healthy assignment. Permission checks remain enabled.
+
+To correct an expectation that measurement has shown to be wrong, use
+`team_budget.py inspect --issue UUID`, then `team_budget.py extend --authorization
+path#sha256` to preview an actual Owner instruction. This unblocks nothing -- there
+is nothing to unblock -- it realigns the baseline so later monitoring compares
+against something realistic instead of reporting a permanent overrun. The JSON
+includes issue, authorized_by=Owner, authorization_id, evidence, reason,
+expected_scope_sha256, positive add_minutes and optional nonnegative
+add_usd/add_calls/add_corrections. Add `--apply` only with existing authorization.
+The same request is idempotent and retains prior spend, unknown charges and calls.
 
 ## Short handoffs and evidence reuse
 

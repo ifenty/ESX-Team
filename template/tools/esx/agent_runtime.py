@@ -581,7 +581,9 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
         if transition_result and transition_result["classification"] == "assessed":
             prompt = "Assessed runtime transition for this retained session. Read changed instruction files before acting: " + json.dumps(transition_result) + "\n" + prompt
         (turn / "prompt.txt").write_text(prompt)
-        command += ['--max-budget-usd', str(reservation['reserved_usd'])]
+        # No provider-side spend cap. The reservation records what this turn was
+        # expected to cost so settle() can measure the difference; capping the
+        # provider here would truncate a turn mid-work over a pricing estimate.
         if not probe:
             index = command.index('--settings') + 1
             settings = json.loads(command[index])
@@ -629,6 +631,15 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             if errors:
                 status, error = 'incomplete', '; '.join(errors)
         (turn / "report.md").write_text(message)
+        turn_source_signature = None
+        if source_signature is not None:
+            try:
+                from project import source_signature as measure_source
+                turn_source_signature = measure_source(root)
+            except (ValueError, OSError, KeyError, TypeError):
+                # An unreadable tree must not mask the turn's own outcome; leaving
+                # this None records honestly that the comparison was unavailable.
+                turn_source_signature = None
         record = {"event_id": event_id, "ts": now(), "runtime": "claude_cli_session",
                   "agent_type": role, "agent_id": session, "session_id": session,
                   "issue_id": issue, "correction_round": correction_round,
@@ -641,6 +652,14 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                   "finished_at": now(), "duration_seconds": time.monotonic() - started,
                   "returncode": code, "runtime_fingerprint": contract["sha256"],
                   "source_signature_at_dispatch": source_signature,
+                  # Whether this turn left durable work behind. A turn cut short by
+                  # a timeout is usually recoverable by resuming rather than
+                  # restarting, but only if its edits actually landed -- and a bare
+                  # 'failed' status cannot say which. Recording the comparison here
+                  # means recovery reads a field instead of guessing.
+                  "source_changed_during_turn": (None if turn_source_signature is None
+                                                 else turn_source_signature != source_signature),
+                  "source_signature_at_finish": turn_source_signature,
                   "resumed_from_event_id": state["turns"][-1] if state["turns"] else None,
                   "sender_session_id": from_session,
                   "replacement": replacement,
