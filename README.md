@@ -280,6 +280,22 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.2.1: an elapsed allocation must not hand back a past deadline
+
+Found by using 1.2.0 immediately: removing the refusal left `reserve` still
+returning the scope's own deadline, so a turn launched against an already-elapsed
+nominal allocation received a deadline in the past and `run_turn` killed it at
+launch -- observed as a 0.18-second "timeout" with `returncode -15` and an empty
+report, on an issue whose only remaining work was a reseal.
+
+The returned deadlines bound one turn's liveness; they were never meant as a
+cumulative cap. Only still-future scope deadlines now constrain a turn, and every
+turn gets a real horizon: its own `--timeout` when given, otherwise the scope's
+nominal duration measured from now. The elapsed wall time is still recorded as an
+overrun, and a scope's stored deadline still never resets. Two regression tests
+cover both directions -- an expired scope yielding a usable future deadline, and a
+still-valid scope deadline continuing to bound a longer turn.
+
 ## Version 1.2.0: cost and effort are measured, never capped
 
 Allocations are now **nominal expectations, not caps**. `team_budget` no longer

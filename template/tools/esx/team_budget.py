@@ -110,11 +110,18 @@ def reserve(root, event, issue, budget, *, run=None, run_budget=None, correction
             if spent + amount > cap['usd'] + 1e-8:
                 observe(saved, 'usd', cap['usd'], spent + amount,
                         'reserved spend exceeds its expected allocation')
-        deadlines = [ledger['scopes'][k].get('deadline', ledger['scopes'][k]['started'] + c['minutes'] * 60) for k, c in scopes]
-        soft_deadlines = [ledger['scopes'][k].get('soft_deadline', ledger['scopes'][k]['started'] + c['minutes'] * 48) for k,c in scopes]
-        if turn_seconds is not None:
-            deadlines.append(time.time()+turn_seconds)
-            soft_deadlines.append(time.time()+turn_seconds*.8)
+        # The returned deadlines bound THIS TURN's liveness; they are not a
+        # cumulative cap. A scope whose nominal wall time already elapsed has its
+        # overrun recorded above, but it must not hand back a past deadline: that
+        # would kill every later turn at launch. So only still-future scope
+        # deadlines constrain the turn, and the turn always gets a real horizon.
+        now = time.time()
+        horizon = now + turn_seconds if turn_seconds is not None else now + min(c['minutes'] for _, c in scopes) * 60
+        soft_horizon = now + turn_seconds * .8 if turn_seconds is not None else now + min(c['minutes'] for _, c in scopes) * 48
+        deadlines = [horizon] + [d for d in (ledger['scopes'][k].get('deadline', ledger['scopes'][k]['started'] + c['minutes'] * 60)
+                                            for k, c in scopes) if d > now]
+        soft_deadlines = [soft_horizon] + [d for d in (ledger['scopes'][k].get('soft_deadline', ledger['scopes'][k]['started'] + c['minutes'] * 48)
+                                                      for k, c in scopes) if d > now]
         receipt = {'event_id': event, 'scopes': [k for k, _ in scopes], 'reserved_usd': amount,
                    'charged_usd': amount, 'reported_usd': None, 'status': 'reserved',
                    'deadline': min(deadlines), 'soft_deadline': min(soft_deadlines),

@@ -183,10 +183,14 @@ class TeamOperationsTests(unittest.TestCase):
         scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
         self.assertEqual(scope['overruns']['corrections']['expected'], 1)
         self.assertEqual(scope['overruns']['corrections']['actual'], 2)
-        with patch.object(budget.time, 'time', return_value=first['deadline'] + 1):
+        stored = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST'].get('deadline')
+        with patch.object(budget.time, 'time', return_value=first['deadline'] + 1) as clock:
             late = budget.reserve(self.root, 'late', 'TEST', cap)
-        self.assertEqual(late['deadline'], first['deadline'])
+            # The scope's own recorded deadline never resets, but a later turn must
+            # still receive a usable future horizon rather than the elapsed one.
+            self.assertGreater(late['deadline'], clock.return_value)
         scope = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']
+        self.assertEqual(scope.get('deadline'), stored)
         self.assertIn('minutes', scope['overruns'])
 
     def test_tool_hook_preserves_permission_checks_and_quotes_command(self):
@@ -323,12 +327,42 @@ class TeamOperationsTests(unittest.TestCase):
             budget.allow_tool(self.root, 'two', 'b')
         self.assertEqual(later['reserved_usd'], 1)
         overruns = json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns']
-        self.assertEqual(set(overruns), {'minutes', 'corrections', 'usd', 'provider_overshoot',
-                                         'soft_deadline', 'calls'})
+        # soft_deadline is a per-turn liveness signal, so it is not expected here:
+        # a turn launched after the nominal wall time still gets a future horizon.
+        self.assertEqual(set(overruns), {'minutes', 'corrections', 'usd',
+                                         'provider_overshoot', 'calls'})
         for dimension, entry in overruns.items():
             self.assertGreater(entry['observations'], 0, dimension)
             self.assertIn('first_observed_at', entry)
             self.assertIn('detail', entry)
+
+    def test_expired_scope_still_gives_a_turn_a_usable_future_deadline(self):
+        """Regression: an elapsed nominal allocation must not hand back a past deadline.
+
+        Under monitoring-only semantics reserve() no longer refuses an expired
+        scope. If it returned the scope's own past deadline, run_turn would kill
+        every later turn at launch -- observed as a 0.18-second 'timeout' with
+        returncode -15 and an empty report.
+        """
+        cap = budget.limits(override={'minutes': 1})
+        first = budget.reserve(self.root, 'one', 'TEST', cap)
+        budget.settle(self.root, 'one', 0)
+        with patch.object(budget.time, 'time', return_value=first['deadline'] + 10_000) as clock:
+            later = budget.reserve(self.root, 'two', 'TEST', cap, turn_seconds=300)
+            self.assertGreater(later['deadline'], clock.return_value)
+            self.assertGreater(later['soft_deadline'], clock.return_value)
+            self.assertAlmostEqual(later['deadline'], clock.return_value + 300, places=3)
+            # No turn_seconds: the horizon falls back to the nominal duration.
+            fallback = budget.reserve(self.root, 'three', 'TEST', cap)
+            self.assertGreater(fallback['deadline'], clock.return_value)
+        # The elapsed wall time is still recorded as an overrun.
+        self.assertIn('minutes', json.loads(budget.file_for(self.root).read_text())['scopes']['issue:TEST']['overruns'])
+
+    def test_a_live_scope_deadline_still_bounds_a_longer_turn(self):
+        """A still-valid nominal deadline keeps constraining the turn."""
+        cap = budget.limits(override={'minutes': 10})
+        reservation = budget.reserve(self.root, 'one', 'TEST', cap, turn_seconds=99_999)
+        self.assertLess(reservation['deadline'], time.time() + 10 * 60 + 1)
 
     def test_repeated_crossing_updates_one_observation_rather_than_growing(self):
         """Monitoring must not itself become an unbounded cost."""
