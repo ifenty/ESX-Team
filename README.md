@@ -125,6 +125,7 @@ and triggers to the relevant role definitions.
 | `output_paths` | Generated outputs excluded from source inventories; must not conceal a configured root |
 | `external_inputs` | Explicit external input files; their actual bytes and resolved identities are hashed |
 | `mirrored_paths` | Optional: `{"canonical": path, "mirrors": [path, ...]}` pairs for files a build/compile step needs its own local copy of (no shared-import mechanism available); `tools/esx/audit.py` flags any mirror whose bytes have drifted from its canonical source |
+| `archive_paths` | Optional: paths holding superseded documentation kept for provenance. `tools/esx/audit.py` skips instruction-link checking beneath them, because their links describe a layout that no longer exists. A configured scientific root always wins, so real source/tests/configuration never become unchecked by being listed here |
 | `environment_variables` | Environment values relevant to reproducibility; do not list credential variables |
 | `toolchain_commands` | Foreground argv arrays reporting the actual compiler/interpreter/library environment |
 | `command_timeout_seconds` | Maximum foreground command duration; choose for the declared workflow |
@@ -278,6 +279,20 @@ Arch sends through the authenticated provider tool and records actual receipts o
 concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
+
+## Version 1.1.1: command-line qualification and configured archives
+
+Two fixes found by a receiving project that had patched framework code to work
+around both. `final_verification.py` now aliases itself into `sys.modules` when
+executed as a script, so `verify.py`'s lazy import resolves to the running
+module and the lease it just granted is honoured; previously the documented
+command refused every active-issue scientific qualification while reporting that
+the operator should run the command they were already running. Its regression
+test invokes the real command in a subprocess, which is the only arrangement
+that reproduces the defect. `esx/project.json` also accepts optional
+`archive_paths`, excluding superseded documentation from instruction-link
+checking, so retaining historical Markdown no longer requires editing
+`audit.py`. A configured scientific root always outranks that exclusion.
 
 ## Version 1.1.0: measured and bounded team operation
 

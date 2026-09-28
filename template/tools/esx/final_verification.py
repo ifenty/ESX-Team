@@ -221,4 +221,9 @@ def main():
 
 
 if __name__ == '__main__':
+    # verify.py's lazy `import final_verification` must resolve to this running
+    # module. Executed as a script this module is registered as '__main__', so a
+    # plain import would build a second instance with its own empty _LEASES and
+    # authorize() would refuse every lease this process just granted.
+    sys.modules.setdefault('final_verification', sys.modules['__main__'])
     main()

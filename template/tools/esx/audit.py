@@ -53,12 +53,21 @@ def audit_mirrors(root, cfg):
     return {'findings': findings}
 
 
-def audit_instructions(root, files=None):
+def audit_instructions(root, files=None, cfg=None):
+    """Check that every relative Markdown link and heading anchor resolves.
+
+    An explicit `files` list is checked as given. Discovery instead skips loop
+    state, administrative records and configured `archive_paths` documentation,
+    whose links describe a superseded layout on purpose.
+    """
     from doc_inventory import markdown_sections
-    from project import administrative
+    from project import administrative, archived, config
+    if files is None and cfg is None:
+        cfg = config(root, ready=False)
     names = files or [p.relative_to(root).as_posix() for folder in ('.claude', 'devel-loop', 'docs', 'esx')
                       for p in (root / folder).rglob('*.md') if 'loop_state' not in p.parts and not mutable_loop_path(p.relative_to(root).as_posix())
-                      and not administrative(p.relative_to(root).as_posix())]
+                      and not administrative(p.relative_to(root).as_posix())
+                      and not archived(p.relative_to(root).as_posix(), cfg)]
     if files is None:
         names.append('CLAUDE.md')
     findings = []
@@ -110,7 +119,7 @@ def check(root, overrides=None):
         require(len(matches) == 1, f'{event}: install exactly one ESX {marker} hook')
     from check_ralph_hook import check as check_stop
     check_stop(root)
-    findings = audit_code_map(root)['findings'] + audit_instructions(root)['findings'] + audit_mirrors(root, cfg)['findings']
+    findings = audit_code_map(root)['findings'] + audit_instructions(root, cfg=cfg)['findings'] + audit_mirrors(root, cfg)['findings']
     require(not findings, '\n'.join(findings))
     return {'status': 'PASS', 'roles': 6, 'map_and_links': 'checked', 'records': 'checked'}
 

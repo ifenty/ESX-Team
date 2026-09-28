@@ -12,6 +12,7 @@
   ],
   "external_inputs": [],
   "mirrored_paths": [],
+  "archive_paths": [],
   "environment_variables": [
     "PATH",
     "CONDA_PREFIX",

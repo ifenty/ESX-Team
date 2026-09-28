@@ -74,6 +74,15 @@ def config(root, ready=True):
                 'each mirrored_paths entry needs a canonical path and a nonempty list of mirror paths')
         for name in [entry['canonical']] + entry['mirrors']:
             local(root, name)
+    # Superseded documentation retained for provenance. Its links are expected to
+    # be stale, so audit.py excludes it from instruction-link checking. Keeping
+    # this in configuration means a project never edits framework code to retain
+    # its own archive, and the exclusion stays visible in one reviewed place.
+    require(isinstance(cfg.get('archive_paths', []), list)
+            and all(isinstance(x, str) and x for x in cfg.get('archive_paths', [])),
+            'archive_paths must be a list of project paths')
+    for name in cfg.get('archive_paths', []):
+        local(root, name)
     if ready:
         for key in ('project_id', 'project_name', 'mission'):
             require(isinstance(cfg.get(key), str) and cfg[key].strip(), f'complete esx/project.json: {key}')
@@ -104,6 +113,21 @@ def administrative(name):
         return True
     return ((name.startswith(base + 'assessments/') and Path(name).suffix in ('.md','.json','.txt','.log'))
             or (name.startswith(base + 'records/') and Path(name).suffix == '.md'))
+
+
+def archived(name, cfg):
+    """Report whether a path sits under a configured `archive_paths` root.
+
+    Archived documentation is superseded material a project keeps for provenance.
+    Its links point at a layout that no longer exists, so link checking would
+    report findings no one intends to fix. A configured scientific root always
+    wins: real source/tests/configuration never become unchecked by being listed
+    here.
+    """
+    science_roots = cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']
+    if any(name == p or name.startswith(p.rstrip('/') + '/') for p in science_roots):
+        return False
+    return any(name == p or name.startswith(p.rstrip('/') + '/') for p in cfg.get('archive_paths', []))
 
 
 def selected(name, cfg, scientific=False):

@@ -77,6 +77,29 @@ class ExecutionTests(unittest.TestCase):
         complete['verification'] = dict(receipt=reused['receipt'], scientific=reused['scientific'])
         self.assertEqual(final_verification.check_receipt(self.root, complete)['status'], 'PASS')
 
+    def test_command_line_qualification_shares_its_own_lease(self):
+        """Qualify through the documented command, not only the in-process call.
+
+        Executed as a script this module is registered as '__main__'. verify.py
+        then resolves its own lazy `import final_verification` to whatever that
+        name refers to, so without the module alias it receives a second
+        instance whose _LEASES is empty and refuses the lease this very process
+        granted -- reporting that the operator must run the command they are
+        already running. Only a subprocess reproduces that arrangement.
+        """
+        done = self.reviewed()
+        packet = self.root / project.STATE / 'review-packet-command-line.json'
+        project.atomic_json(packet, done)
+        run = subprocess.run([sys.executable, str(self.root / 'tools/esx/final_verification.py'),
+                              'run', '--root', str(self.root), '--review', str(packet), '--owner', 'arch'],
+                             capture_output=True, text=True)
+        output = run.stdout + run.stderr
+        self.assertNotIn('requires final_verification.py run', output)
+        self.assertEqual(run.returncode, 0, output)
+        self.assertIn('EXECUTED PASS', output)
+        done['verification'].update(**{k: json.loads(run.stdout)[k] for k in ('scientific', 'receipt')})
+        self.assertEqual(final_verification.check_receipt(self.root, done)['status'], 'PASS')
+
     def test_prepared_diffusion_pass_and_exact_reuse(self):
         done = self.reviewed()
         result = final_verification.run(self.root, done, 'arch')

@@ -133,6 +133,41 @@ class FrameworkTests(unittest.TestCase):
                 self.assertNotIn(b'/Users/ifenty/', path.read_bytes())
                 self.assertNotIn(b'ADX', path.read_bytes())
 
+    def test_configured_archive_paths_are_excluded_from_link_checking(self):
+        """Superseded documentation keeps its stale links without a code edit.
+
+        A project that retains historical Markdown would otherwise have to patch
+        audit.py to keep a passing structural gate, so the exclusion belongs in
+        reviewed configuration instead.
+        """
+        archive = self.root / 'docs/superseded'
+        archive.mkdir(parents=True)
+        (archive / 'old_design.md').write_text('# Superseded\n\nSee [the old layout](../../gone/removed.md).\n')
+        with self.assertRaisesRegex(ValueError, 'missing/locality-invalid link'):
+            audit.check(self.root)
+        configuration = self.root / 'esx/project.json'
+        settings = json.loads(configuration.read_text())
+        settings['archive_paths'] = ['docs/superseded']
+        configuration.write_text(json.dumps(settings, indent=2) + '\n')
+        self.assertEqual(audit.check(self.root)['status'], 'PASS')
+        # A configured scientific root outranks the archive convention, so real
+        # source can never be quietly exempted by listing it here.
+        settings['archive_paths'] = ['src']
+        configuration.write_text(json.dumps(settings, indent=2) + '\n')
+        self.assertFalse(project.archived('src/diffusion.py', json.loads(configuration.read_text())))
+
+    def test_archive_paths_must_be_local_project_paths(self):
+        configuration = self.root / 'esx/project.json'
+        settings = json.loads(configuration.read_text())
+        settings['archive_paths'] = ['../outside']
+        configuration.write_text(json.dumps(settings, indent=2) + '\n')
+        with self.assertRaisesRegex(ValueError, 'invalid project path'):
+            audit.check(self.root)
+        settings['archive_paths'] = [123]
+        configuration.write_text(json.dumps(settings, indent=2) + '\n')
+        with self.assertRaisesRegex(ValueError, 'archive_paths must be a list of project paths'):
+            audit.check(self.root)
+
     def test_blank_deployment_requires_customization(self):
         other = self.root.parent / 'blank'
         deploy.deploy(other, apply=True)
