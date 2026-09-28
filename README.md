@@ -280,6 +280,32 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.4.0: an issue no longer re-judges another issue's accepted work
+
+A baseline is pinned write-once, deliberately, so a fresh working-tree capture
+cannot hide cumulative edits. The consequence was that an issue left open while the
+tree moved inherited every other issue's changes into its own candidate diff.
+Measured in a receiving project after four unrelated closures: one issue needed 85
+judgments, another 58, another 54 -- overwhelmingly work those other issues had
+already dispositioned and whose closeouts had been accepted with review.
+
+Dispositions gain a `carried_forward` action, prefilled by `doc_contract.draft`.
+The proof is exact rather than by baseline ancestry: a sealed disposition records
+its target's own byte state in `judgment_inputs.target.sha256`, so a target whose
+**current** state was already judged under another issue's accepted closeout has
+genuinely been reviewed, and its provenance is cited instead of restated.
+
+The integrity property is preserved on every side. `validate_report` re-derives the
+attribution and never trusts the report's claim, since the whole force of the action
+is an assertion about some *other* closeout. A target that changed since that seal
+has a different state and still needs a judgment. An issue cannot carry forward its
+own judgment. Only closeouts recorded `completed` qualify, so a partial iteration's
+dispositions confer nothing.
+
+Together with 1.3.0's `upgrade_supplied`, the two attributions leave an issue
+judging what it actually changed. In the observed project one issue fell from 18
+judgments to 1.
+
 ## Version 1.3.0: an upgrade no longer makes every open issue harder to close
 
 `FRAMEWORK_PATHS` includes `tools/esx` and participates in the inventory a

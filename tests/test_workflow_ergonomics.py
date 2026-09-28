@@ -170,6 +170,72 @@ class UpgradeAttributionTests(unittest.TestCase):
         self.assertEqual(project_target['action'], '')
         self.assertNotIn('deployment', project_target)
 
+
+class CarriedForwardTests(unittest.TestCase):
+    """A pinned baseline must not force one issue to re-judge another's accepted work.
+
+    Measured in a receiving project: an issue left open across four closures needed
+    85 judgments, the large majority already dispositioned and accepted under those
+    other issues. The proof is exact rather than by baseline ancestry -- a sealed
+    disposition records its target's own byte state -- so only a target whose CURRENT
+    state was already judged elsewhere carries forward.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.state = self.root / 'devel-loop/loop_state'
+        (self.state / 'maintenance').mkdir(parents=True)
+        self.target = 'src/model.py::step'
+        self.current = {'src/model.py': {'sha256': 'f' * 64, 'units': {'step': {'sha256': 's' * 64}}}}
+
+    def seal(self, issue, state, action='updated', outcome='completed'):
+        report = {'version': 1, 'kind': 'documentation', 'issue_id': issue, 'references': [],
+                  'dispositions': [{'target': self.target, 'change': 'modified', 'action': action,
+                                    'judgment_inputs': {'target': {'sha256': state}}}]}
+        sha = doc_contract.digest(report)
+        (self.state / 'maintenance' / f'{sha}.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+        ref = {'path': f'devel-loop/loop_state/maintenance/{sha}.json', 'sha256': sha}
+        with (self.state / 'loop_history.jsonl').open('a') as stream:
+            stream.write(json.dumps({'id': issue, 'outcome': outcome,
+                                     'maintenance': {'documentation': ref}}) + '\n')
+        return ref
+
+    def test_state_judged_under_another_issue_carries_forward(self):
+        ref = self.seal('OTHER-001', 's' * 64)
+        found = doc_contract.carried_attribution(self.root, self.target, self.current, issue='MINE-001')
+        self.assertIsNotNone(found)
+        self.assertEqual(found['issue'], 'OTHER-001')
+        self.assertEqual(found['report'], ref)
+
+    def test_a_changed_target_does_not_carry_forward(self):
+        """The integrity property: only the exact judged state qualifies."""
+        self.seal('OTHER-001', 'different' + 'x' * 55)
+        self.assertIsNone(doc_contract.carried_attribution(
+            self.root, self.target, self.current, issue='MINE-001'))
+
+    def test_an_issue_cannot_carry_forward_its_own_judgment(self):
+        self.seal('MINE-001', 's' * 64)
+        self.assertIsNone(doc_contract.carried_attribution(
+            self.root, self.target, self.current, issue='MINE-001'))
+
+    def test_an_unaccepted_closeout_does_not_qualify(self):
+        self.seal('OTHER-001', 's' * 64, outcome='partial')
+        self.assertIsNone(doc_contract.carried_attribution(
+            self.root, self.target, self.current, issue='MINE-001'))
+
+    def test_prefill_marks_carried_targets_and_blanks_unjudged_ones(self):
+        self.seal('OTHER-001', 's' * 64)
+        carried = doc_contract.prefill(self.root, {'target': self.target, 'change': 'modified'},
+                                       {}, self.current, issue='MINE-001')
+        self.assertEqual(carried['action'], 'carried_forward')
+        self.assertGreaterEqual(len(carried['reason']), 40)
+        self.assertEqual(carried['carried']['issue'], 'OTHER-001')
+        other = doc_contract.prefill(self.root, {'target': 'src/other.py::run', 'change': 'modified'},
+                                     {}, self.current, issue='MINE-001')
+        self.assertEqual(other['action'], '')
+
 class SelfAssessmentNoticeTests(unittest.TestCase):
     """Fix 7: a periodic, un-skippable reminder once the lessons mechanism goes stale."""
 

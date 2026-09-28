@@ -287,10 +287,76 @@ def upgrade_attribution(root, target, base_files, current, supplied=None):
     return dict(states[after], path=path, before_sha256=before, after_sha256=after)
 
 
-def prefill(root, row, base_files, current, supplied=None):
+def judged_elsewhere(root, issue):
+    """Map target -> {state: provenance} already judged under another issue's accepted closeout.
+
+    A pinned baseline means an issue left open while the tree moved inherits every
+    other issue's changes into its own candidate diff: one issue here needed 85
+    judgments, the large majority another issue's work that had already been
+    dispositioned and accepted. Re-judging those adds no integrity and misattributes
+    them.
+
+    The proof is exact rather than by baseline ancestry: a sealed disposition records
+    its target's own byte state in `judgment_inputs.target.sha256`, so a target whose
+    CURRENT state equals a state already judged and accepted elsewhere has genuinely
+    been reviewed. A target that changed since that seal has a different state and
+    still requires a judgment.
+    """
+    judged = {}
+    history = Path(root) / f'{STATE}/loop_history.jsonl'
+    if not history.is_file():
+        return judged
+    for line in history.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get('id') == issue or row.get('outcome') != 'completed':
+            continue
+        ref = (row.get('maintenance') or {}).get('documentation')
+        if not ref:
+            continue
+        try:
+            report = load(root, ref, 'documentation', row['id'])
+        except (ValueError, OSError, KeyError, TypeError):
+            continue
+        if 'references' not in report:
+            continue
+        for row_d in report.get('dispositions', []):
+            state = ((row_d.get('judgment_inputs') or {}).get('target') or {}).get('sha256')
+            if state and row_d.get('action') in ('updated', 'reviewed_unchanged', 'removed'):
+                judged.setdefault(row_d['target'], {})[state] = {
+                    'issue': row['id'], 'report': ref, 'action': row_d['action'],
+                    'target_sha256': state}
+    return judged
+
+
+def carried_attribution(root, target, current, judged=None, issue=None):
+    """Return provenance when this exact target state was judged under another issue."""
+    judged = judged_elsewhere(root, issue) if judged is None else judged
+    states = judged.get(target)
+    if not states:
+        return None
+    inputs = unit_inputs(current, target)
+    state = (inputs or {}).get('sha256')
+    if not state or state not in states:
+        return None
+    return states[state]
+
+
+def prefill(root, row, base_files, current, supplied=None, issue=None):
     """Blank a disposition for judgment, or attribute it to a recorded upgrade."""
     provenance = upgrade_attribution(root, row['target'], base_files, current, supplied)
     if provenance is None:
+        carried = carried_attribution(root, row['target'], current, None, issue)
+        if carried is not None:
+            return {**row, 'action': 'carried_forward', 'reason': (
+                'This exact byte state of this target was already judged and accepted under issue '
+                + str(carried['issue']) + ', which dispositioned it as ' + carried['action'] + '. Re-judging it '
+                'here would restate another issue work rather than add review, so its provenance is cited '
+                'instead.'), 'references': [], 'carried': carried}
         return {**row, 'action': '', 'reason': '', 'references': []}
     return {**row, 'action': 'upgrade_supplied', 'reason': (
         'Framework file supplied by a recorded ESX upgrade, not authored by this issue. Both the baseline and '
@@ -311,7 +377,7 @@ def draft(root, issue, base_ref, previous_ref=None):
     payload = envelope('documentation', issue)
     payload.update(baseline=base_ref, candidate=digest(current),
                    changes=changes(base['files'], current),
-                   dispositions=[prefill(root, r, base['files'], current)
+                   dispositions=[prefill(root, r, base['files'], current, issue=issue)
                                  for r in changes(base['files'], current)],
                    map_delta={'status': '', 'reason': '', 'references': []})
     if previous_ref:
@@ -394,10 +460,20 @@ def validate_report(root, report, issue, base_ref, current=None):
         target = row['target']
         require(row.get('change') == expected_by_target[target], f'{target}: incorrect change kind')
         action = row.get('action')
-        require(action in ('updated', 'reviewed_unchanged', 'removed', 'upgrade_supplied'),
+        require(action in ('updated', 'reviewed_unchanged', 'removed', 'upgrade_supplied', 'carried_forward'),
                 f'{target}: missing documentation action')
         require(action != 'removed' or row['change'] == 'removed', f'{target}: only a removed target can use removed')
         require(explanation(row.get('reason')), f'{target}: explain the resulting contract or why its descriptions remain accurate')
+        if action == 'carried_forward':
+            # Re-derived, never trusted from the report: the whole force of this
+            # action is that some OTHER accepted closeout already judged this exact
+            # state, and a report cannot be allowed to assert that about itself.
+            proven = carried_attribution(root, target, current, None, issue)
+            require(proven is not None,
+                    f'{target}: carried_forward requires this exact target state to have been judged under '
+                    'another issue accepted closeout; a state judged nowhere needs a real judgment')
+            require(row.get('carried') == proven, f'{target}: carried provenance differs from the sealed record')
+            continue
         if action == 'upgrade_supplied':
             # Attribution must be re-derived, never accepted from the report: a
             # claimed upgrade origin is exactly what a project edit could forge.
