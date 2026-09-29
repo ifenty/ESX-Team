@@ -61,6 +61,40 @@ Do not label an authorized channel unauthorized merely because a turn changed.
 `pending`, a draft, and an intention to post cannot satisfy the delivery duty.
 Failed/unavailable events retain their attempts in `notifications.py status`;
 retry them explicitly after the provider recovers, checking for earlier delivery.
+
+## Session provider outage
+
+When the provider is established dead for the session (for example, only an
+authentication tool is exposed and the owner step cannot be completed), record
+the discovery once instead of adjudicating each event:
+
+```sh
+python3 tools/esx/notifications.py outage --provider slack \
+  --tool 'Tool discovery: actual search used' --probe-evidence 'Concrete probe result.'
+```
+
+The outage belongs to the current loop run. It marks every queued event for that
+provider, and every event the run queues later, `outage_covered` with the outage
+ID; the evidence lives only on the outage record. `status` lists outage-covered
+events separately from individually `failed` ones. Use per-event `failed` for an
+executed send that failed; an outage asserts that no send was possible at all.
+
+Recovery is never assumed and the outage is never assumed to persist. While it is
+active, `--next` blocks until a re-probe is recorded in every loop iteration, and
+after every `OUTAGE_PROBE_EVENTS` (10) covered events, whichever comes first:
+
+```sh
+python3 tools/esx/notifications.py reprobe --provider slack --tool ACTUAL_TOOL \
+  --result down|up --probe-evidence 'What the fresh probe returned.'
+```
+
+`--result up` clears the outage; events queued afterwards are again pending and
+individually adjudicated, while earlier covered events keep their outage status
+(retry them explicitly if the owner still needs them). An outage applies for
+`OUTAGE_RENEW_ITERATIONS` (5) loop iterations from its declaration or last renewal.
+After that it covers nothing new, `down` re-probes are refused, and `--next`
+blocks until the `outage` command is rerun with fresh probe evidence (a renewal)
+or the outage is cleared. `pending` still blocks exactly as before.
 Report undelivered messages in the owner-facing loop summary. A network failure
 must not turn a correct scientific result into a failure or consume endless
 retries. Batch related findings while keeping their event receipts identifiable.

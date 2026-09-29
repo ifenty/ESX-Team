@@ -4,6 +4,15 @@ No network or credential access occurs here. Events are derived from project
 records and deduplicated by stable identity; successful delivery retains the raw
 provider response. A concrete failed/unavailable attempt permits scientific work
 while remaining visible in the ledger. Pending is never treated as an attempt.
+
+A provider established dead for the session is recorded once as an outage with
+its probe evidence. It covers every queued event for that provider, and events
+queued later in the same loop run, as ``outage_covered`` (never ``failed``). It
+is never assumed to recover or to persist: while it is active, --next demands a
+recorded re-probe every loop iteration or every OUTAGE_PROBE_EVENTS covered
+events, whichever comes first, and after OUTAGE_RENEW_ITERATIONS iterations the
+outage stops covering events until renewed with fresh probe evidence. Only a
+re-probe with result ``up`` clears it; later events are adjudicated one by one.
 """
 import argparse
 from contextlib import contextmanager
@@ -17,6 +26,8 @@ from records import json_lines, validate_records
 
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = f'{STATE}/notifications.json'
+OUTAGE_PROBE_EVENTS = 10      # covered events allowed between recorded probes
+OUTAGE_RENEW_ITERATIONS = 5   # loop iterations an outage record applies before renewal
 
 
 @contextmanager
@@ -53,13 +64,10 @@ def synchronize(root, terminal=None):
     from source signatures by their loop_state location.
     """
     root = Path(root).resolve()
-    path = local(root, '.claude/esx-loop.local.md')
-    if not path.exists():
+    current = session(root)
+    if current is None:
         return
-    from ralph_stop import parse_state
-    state = parse_state(path.read_text())
-    if state['active'] != 'true':
-        return
+    state, run = current
     cfg = json.loads(local(root, 'esx/project.json').read_text())
     route = cfg.get('communication', {})
     if not route.get('provider') or route.get('provider') in ('none', 'disabled'):
@@ -69,9 +77,6 @@ def synchronize(root, terminal=None):
     starts = local(root, f'{STATE}/issue-start.json')
     start = json.loads(starts.read_text()) if starts.exists() else None
     history = json_lines(local(root, f'{STATE}/loop_history.jsonl'))
-    match = re.search(r'(?m)^run_id:\s*([^\s]+)', state['header'])
-    # Existing deployments use the fixed header (minus the counter) as identity.
-    run = match[1] if match else digest([state['limit'], state['promise'], state['prompt']])[:24]
     with ledger(root) as data:
         if run not in data['runs']:
             data['runs'][run] = {'issues': sorted(set(opened) | set(closed)), 'lessons': sorted(lessons),
@@ -108,6 +113,140 @@ def synchronize(root, terminal=None):
                  f"Loop ending: {terminal}. {len(opened)} open issues, "
                  f"{sum(r['state'] == 'blocked' for r in opened.values())} blocked. "
                  'Unfinished work remains recorded on disk.', route)
+        cover(data, run, state['iteration'])
+
+
+def session(root):
+    """Return (loop state, run id) for the active loop, else None."""
+    path = local(Path(root).resolve(), '.claude/esx-loop.local.md')
+    if not path.exists():
+        return None
+    from ralph_stop import parse_state
+    state = parse_state(path.read_text())
+    if state['active'] != 'true':
+        return None
+    match = re.search(r'(?m)^run_id:\s*([^\s]+)', state['header'])
+    # Existing deployments use the fixed header (minus the counter) as identity.
+    return state, match[1] if match else digest([state['limit'], state['promise'], state['prompt']])[:24]
+
+
+def active_outage(data, provider, run):
+    """The active outage recorded for this provider in this loop run, if any."""
+    return next((o for o in data.get('outages', {}).values() if o['status'] == 'active'
+                 and o['provider'] == provider and o['run'] == run), None)
+
+
+def expired(outage, iteration):
+    return iteration >= outage['bound_iteration'] + OUTAGE_RENEW_ITERATIONS
+
+
+def cover(data, run, iteration):
+    """Mark pending events of a provider under a current, unexpired outage."""
+    for e in sorted(data['events'].values(), key=lambda e: (e['created_at'], e['id'])):
+        outage = active_outage(data, e['provider'], run) if e['status'] == 'pending' else None
+        if outage and not expired(outage, iteration):
+            e['status'], e['outage'] = 'outage_covered', outage['id']
+            outage['covered'].append(e['id'])
+            outage['covered_since_probe'] += 1
+
+
+def probe_due(outage, iteration):
+    """Why a re-probe is required now, or None."""
+    if expired(outage, iteration):
+        return (f"outage bound of {OUTAGE_RENEW_ITERATIONS} iterations from iteration "
+                f"{outage['bound_iteration']} is spent; renew it with fresh probe evidence or clear it")
+    if iteration > outage['last_probe_iteration']:
+        return f"no probe recorded in loop iteration {iteration}"
+    if outage['covered_since_probe'] >= OUTAGE_PROBE_EVENTS:
+        return f"{outage['covered_since_probe']} events covered since the last probe (limit {OUTAGE_PROBE_EVENTS})"
+    return None
+
+
+def _probe_input(tool, evidence):
+    require(isinstance(tool, str) and tool.strip(), 'record the actual probe tool or tool-discovery action')
+    require(isinstance(evidence, str) and len(evidence.strip()) >= 20, 'provide concrete probe evidence')
+
+
+def outage(root, provider, tool, evidence):
+    """Declare, or renew with fresh evidence, a session-scoped provider outage."""
+    root = Path(root).resolve()
+    current = session(root)
+    require(current is not None, 'an outage is session-scoped; it requires an active ESX loop')
+    state, run = current
+    _probe_input(tool, evidence)
+    iteration = state['iteration']
+    with ledger(root) as data:
+        outages = data.setdefault('outages', {})
+        o = active_outage(data, provider, run)
+        probe = {'at': now(), 'iteration': iteration, 'tool': tool, 'evidence': evidence}
+        if o is None:
+            identity = digest(['outage', provider, run, probe['at']])[:24]
+            o = outages[identity] = {'id': identity, 'provider': provider, 'run': run, 'status': 'active',
+                                     'declared_at': probe['at'], 'declared_iteration': iteration,
+                                     'covered': [], 'covered_since_probe': 0, 'probes': []}
+            probe['result'] = 'declared'
+        else:
+            probe['result'] = 'renewed'
+        o['probes'].append(probe)
+        o.update(bound_iteration=iteration, last_probe_iteration=iteration)
+        cover(data, run, iteration)
+        o['covered_since_probe'] = 0  # events queued before this probe are covered by it
+        return o
+
+
+def reprobe(root, provider, tool, result, evidence):
+    """Record a forced re-probe: ``down`` keeps the outage, ``up`` clears it."""
+    root = Path(root).resolve()
+    current = session(root)
+    require(current is not None, 'an outage is session-scoped; it requires an active ESX loop')
+    state, run = current
+    _probe_input(tool, evidence)
+    require(result in ('down', 'up'), 'probe result must be down or up')
+    iteration = state['iteration']
+    with ledger(root) as data:
+        o = active_outage(data, provider, run)
+        require(o is not None, f'no active {provider} outage in this loop run')
+        if result == 'down':
+            require(not expired(o, iteration), 'outage bound is spent; renew it with notifications.py outage')
+        o['probes'].append({'at': now(), 'iteration': iteration, 'tool': tool, 'result': result, 'evidence': evidence})
+        o.update(last_probe_iteration=iteration, covered_since_probe=0)
+        if result == 'up':
+            o.update(status='cleared', cleared_at=o['probes'][-1]['at'], cleared_iteration=iteration)
+        return o
+
+
+def outage_notice(root):
+    """Instruction for any active outage in this run whose re-probe is due."""
+    root = Path(root).resolve()
+    path = local(root, LEDGER)
+    current = session(root)
+    if current is None or not path.exists():
+        return None
+    state, run = current
+    messages = []
+    for o in json.loads(path.read_text()).get('outages', {}).values():
+        if o['status'] == 'active' and o['run'] == run:
+            reason = probe_due(o, state['iteration'])
+            if reason:
+                messages.append(f"NEXT: re-probe the {o['provider']} provider (outage {o['id']}): {reason}. "
+                                f"Attempt the provider, then run tools/esx/notifications.py reprobe --provider "
+                                f"{o['provider']} --tool ACTUAL_TOOL --result down|up --probe-evidence TEXT"
+                                + (', or renew with notifications.py outage' if expired(o, state['iteration']) else '')
+                                + '; then run --next again.')
+    return ' '.join(messages) or None
+
+
+def status(root):
+    """Ledger plus counts that separate outage coverage from per-event failures."""
+    path = local(Path(root).resolve(), LEDGER)
+    data = json.loads(path.read_text()) if path.exists() else {'events': {}}
+    counts = {}
+    for e in data['events'].values():
+        counts[e['status']] = counts.get(e['status'], 0) + 1
+    return dict(data, summary={'by_status': counts,
+        'outage_covered': sorted(e['id'] for e in data['events'].values() if e['status'] == 'outage_covered'),
+        'failed': sorted(e['id'] for e in data['events'].values() if e['status'] == 'failed'),
+        'active_outages': sorted(o['id'] for o in data.get('outages', {}).values() if o['status'] == 'active')})
 
 
 def pending(root):
@@ -158,12 +297,16 @@ def record(root, identity, response=None, disposition=None, detail=None, tool=No
 
 
 def notice(root):
+    """Blocking instruction for --next: pending delivery, then any forced outage re-probe."""
     events = pending(root)
+    message = None
     if events:
-        return ('NEXT: deliver ' + str(len(events)) + ' pending loop notification(s) using '
-                '.claude/skills/esx-announce/SKILL.md; run tools/esx/notifications.py pending. '
-                'Record the real receipt or concrete provider failure, then run --next again.')
-    return None
+        message = ('NEXT: deliver ' + str(len(events)) + ' pending loop notification(s) using '
+                   '.claude/skills/esx-announce/SKILL.md; run tools/esx/notifications.py pending. '
+                   'Record the real receipt or concrete provider failure (or a session outage), '
+                   'then run --next again.')
+    probe = outage_notice(root)
+    return ' '.join(m for m in (message, probe) if m) or None
 
 
 def main(argv=None):
@@ -180,14 +323,26 @@ def main(argv=None):
     r.add_argument('--detail')
     r.add_argument('--tool', required=True)
     r.add_argument('--authorization')
+    o = sub.add_parser('outage', help='declare or renew a session-scoped provider outage')
+    o.add_argument('--provider', required=True)
+    o.add_argument('--tool', required=True)
+    o.add_argument('--probe-evidence', required=True)
+    q = sub.add_parser('reprobe', help='record a forced outage re-probe; result up clears the outage')
+    q.add_argument('--provider', required=True)
+    q.add_argument('--tool', required=True)
+    q.add_argument('--result', required=True, choices=('down', 'up'))
+    q.add_argument('--probe-evidence', required=True)
     args = p.parse_args(argv)
     try:
         if args.action in ('sync', 'pending'):
             synchronize(args.root)
             result = pending(args.root)
         elif args.action == 'status':
-            path = local(args.root, LEDGER)
-            result = json.loads(path.read_text()) if path.exists() else {'events': {}}
+            result = status(args.root)
+        elif args.action == 'outage':
+            result = outage(args.root, args.provider, args.tool, args.probe_evidence)
+        elif args.action == 'reprobe':
+            result = reprobe(args.root, args.provider, args.tool, args.result, args.probe_evidence)
         else:
             result = record(args.root, args.event,
                 json.loads(args.response_file.read_text()) if args.response_file else None,
