@@ -132,8 +132,9 @@ def diagnose(gate, done_path=None):
         opened, closed, lessons = ledgers
         issue = done.get('id')
         if completed:
-            need(issue in closed and issue not in opened, 'LEDGER_NOT_CLOSED', 'closed_issues.md',
-                 'completed issue must be in closed_issues.md', 'Move the entry (loop_lifecycle.py promote).')
+            need((issue in closed) != (issue in opened), 'LEDGER_ENTRY_INVALID', 'open_issues.md/closed_issues.md',
+                 'completed issue must appear in exactly one ledger',
+                 'Leave the entry in open_issues.md; --check-done moves it on acceptance.')
             if policy.get('numerical_signature_at_start') and policy.get('kind') != 'scientific_change':
                 need(source_signature(root, scientific=True) == policy['numerical_signature_at_start'],
                      'KIND_AMENDMENT_REQUIRED', 'workflow.kind',
@@ -314,8 +315,20 @@ def diagnose(gate, done_path=None):
         root, done, allow_legacy=policy.get('execution_version') != 1), 'Record milestone.logged false, or an exact section reference.')
 
     # The strict gate remains authoritative; replay it without side effects.
+    # --check-done moves a completed entry to closed_issues.md on acceptance, so
+    # replay against that staged move rather than the unmoved ledgers.
     try:
-        gate._check_done(deepcopy(done))
+        staged = None
+        if (gate.ledger_overrides is None and start and done.get('outcome') == 'completed'
+                and done.get('id') == start['id']):
+            import ledger_transaction
+            from project import now
+            staged = ledger_transaction.staged_close(root, start['id'], now(), done.get('summary', ''),
+                                                     start['timestamp'])
+        if staged:
+            ledger_transaction.with_staged(root, staged[1], lambda staged_gate: staged_gate._check_done(deepcopy(done)))
+        else:
+            gate._check_done(deepcopy(done))
         strict = 'accepted'
     except ERRORS as exc:
         strict = f'refused: {exc}'

@@ -280,6 +280,66 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.0: eleven process fixes from a receiving project's retrospectives
+
+Each change answers one measured `TEAM-*` issue filed by 1D_Mixing_Model. No
+existing integrity check was relaxed; every change is additive or makes a refusal
+more informative.
+
+- **Interrupted is not failed (TEAM-VERIFY-RERUN-001).** A final scientific run killed
+  by a signal, or ending without a pytest summary, records `INTERRUPTED`; a source
+  change during the run records `SOURCE_CHANGED`; `FAILED` means only a real test
+  failure. With no current receipt, `--check-done` names the latest attempt's status,
+  log and failure-line count instead of an `Errno 2`. `loop_lifecycle.py rebind-receipt`
+  re-points a prepared closeout at a later matching receipt and refuses one whose
+  review signature differs, replacing a hand edit of `issue-done.json`.
+- **The ledger records only accepted work (TEAM-LEDGER-AHEAD-001).** `--check-done`
+  now moves a completed entry from `open_issues.md` to `closed_issues.md` itself, as a
+  journaled transaction validated by the full gate, with `Date Resolved` equal to the
+  acceptance time. A refused closeout writes nothing. Entries moved by hand are still
+  accepted. Previously the ledger had to claim a resolution before validation; one
+  such claim stood unqualified for 3h10m.
+- **All closeout requirements at once (TEAM-CLOSEOUT-DOCTOR-001,
+  TEAM-REITERATION-CLOSEOUT-001).** Read-only `loop_gate.py --closeout-doctor [--done
+  PATH]` lists every unmet requirement and the fields `review_signature` binds, and
+  replays the strict gate against the staged ledger move, so `ready` means
+  `--check-done` would accept. `prepare-done` finds the prior closeout itself and
+  drafts a `replacements` entry per failed turn with `reason` and `evidence_refs`
+  left for Arch. Scope decisions accept `separate_new`. The verification and runtime
+  identity refusals name the values they need, and waiving a failed review is
+  explained as invalid.
+- **Reviewers see the current seal (TEAM-SEAL-CITATION-001).** Reviewer briefs carry a
+  labeled section with the current sealed documentation report's path and sha256,
+  pre-filled in the example footer. An approval citing any other seal is rejected at
+  capture with both hashes named, not at final verification.
+- **Enumerate stale documents up front (TEAM-DOC-SWEEP-001).** `brief.py --sweep-symbol
+  NAME` (repeatable) lists every project file mentioning the name, with line numbers,
+  whether or not the change touches it. Capped at 50 files and 20 lines per file.
+- **Re-orientation without retyping (TEAM-ARCH-REORIENT-001).** `doc_contract.py navigate
+  --reuse-args <receipt> --use '<fresh>'` reloads the recorded map, targets and
+  documents and still prints every excerpt. It needs a new `--use`, rejects echoed
+  hashes, and refuses when the change lies outside the declared slice.
+- **Retrospectives record what worked (TEAM-RETRO-SUCCESS-001).** Schema 3 adds
+  `confirmations` (category, summary, evidence). An empty `problems` list may be
+  explained by one confirmation with evidence of at least 60 characters, the same
+  floor `no_problem_reason` has. Schema 2 is still accepted; recurrence counts
+  problems only.
+- **Coordinator cost is measurable (TEAM-COORDINATOR-COST-001).** Gate commands log
+  Arch wall time as role-tagged phases, and `team_accounting.py record-arch --issue ID
+  --phase P --minutes M [--usd X] --source TEXT` records main-session cost with
+  provenance. `coordinator_coverage` reads `recorded` only with a self-report or
+  driver receipt. Dispatched-agent figures keep their meaning, and each
+  retrospective's `measured.cost_scope` says whether coordinator cost is included.
+- **One record for a dead transport (TEAM-DEAD-TRANSPORT-001).** `notifications.py
+  outage` covers every queued and later event for a provider in the current run.
+  `status` separates these from `failed` sends. While an outage is active, `--next`
+  requires a `reprobe` every iteration or every 10 covered events, and the outage
+  must be renewed with fresh evidence after 5 iterations. `reprobe --result up`
+  clears it.
+- **Sourced cost figures (TEAM-ESTIMATE-EVIDENCE-001).** `issue_priority.md` requires
+  scoping cost figures to name their source, and a cost-based deferral to rest on a
+  measured cheap prefix of the real command.
+
 ## Version 1.4.0: an issue no longer re-judges another issue's accepted work
 
 A baseline is pinned write-once, deliberately, so a fresh working-tree capture

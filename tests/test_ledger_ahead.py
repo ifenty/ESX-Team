@@ -76,6 +76,14 @@ class LedgerAheadTests(unittest.TestCase):
         self.assert_still_open()
         self.assertEqual(records.json_lines(self.root / project.STATE / 'loop_history.jsonl'), [])
 
+    def test_closeout_doctor_reports_ready_without_moving_the_entry(self):
+        import closeout_doctor
+        result = closeout_doctor.diagnose(self.fixture.gate)
+        self.assertEqual(result['strict_gate'], 'accepted', result)
+        self.assertEqual(result['status'], 'ready', result)
+        self.assertNotIn('LEDGER', json.dumps(result['findings']))
+        self.assert_still_open()
+
     def test_accepted_closeout_moves_the_entry_exactly(self):
         run = self.cli()
         self.assertEqual(run.returncode, 0, run.stderr)

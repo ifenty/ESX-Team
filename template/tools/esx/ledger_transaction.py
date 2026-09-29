@@ -164,6 +164,17 @@ def close_on_acceptance(root, uuid, resolved_at, summary, iteration):
     entry to move. A validation failure raises and leaves both ledgers untouched.
     """
     root = Path(root).resolve()
+    staged = staged_close(root, uuid, resolved_at, summary, iteration)
+    if staged is None:
+        return None
+    before, after = staged
+    transact(root, 'esx', after, {name: digest(text) for name, text in before.items()}, apply=True)
+    return before, after
+
+
+def staged_close(root, uuid, resolved_at, summary, iteration):
+    """Return the (before, after) ledger texts of an acceptance move without writing, or None."""
+    root = Path(root).resolve()
     names = ('open_issues.md', 'closed_issues.md')
     old_open, old_closed = (read(root, name) for name in names)
     if old_open is None or old_closed is None:
@@ -178,9 +189,17 @@ def close_on_acceptance(root, uuid, resolved_at, summary, iteration):
     remaining = old_open[:start] + old_open[end:] if end < len(old_open) else old_open[:start].rstrip() + '\n'
     after = {names[0]: remaining,
              names[1]: old_closed.rstrip() + '\n\n' + resolved_entry(issue.text, resolved_at, summary, iteration)}
-    before = {names[0]: old_open, names[1]: old_closed}
-    transact(root, 'esx', after, {name: digest(text) for name, text in before.items()}, apply=True)
-    return before, after
+    return {names[0]: old_open, names[1]: old_closed}, after
+
+
+def with_staged(root, updates, check):
+    """Run check(gate) against staged ledger texts, writing nothing."""
+    from loop_gate import Gate
+    token = si.STAGED_RECORDS.set((str(Path(root).resolve()), updates))
+    try:
+        return check(Gate(root, updates))
+    finally:
+        si.STAGED_RECORDS.reset(token)
 
 
 def revert(root, before, after):
