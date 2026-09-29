@@ -76,7 +76,7 @@ def run(root, suite, owner, fresh=False, override=None, _lease=None):
             final_verification.authorize(root, _lease)
         active = local(root, f'{STATE}/issue-start.json')
         issue = json.loads(active.read_text()).get('id') if active.exists() else None
-        with team_accounting.phase(root, issue, 'verification'):
+        with team_accounting.phase(root, issue, 'verification', role=owner if isinstance(owner, str) else None):
             return _run(root, suite, owner, fresh, override)
 
 

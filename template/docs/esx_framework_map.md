@@ -56,7 +56,7 @@ recorded provider failures remain visible while scientific work proceeds.
 | Responsibility | Owner | Validation in master |
 |---|---|---|
 | Role briefs and early completion contracts | tools/esx/brief.py, footer_contract.py, agent_runtime.py | tests/test_parity_integration.py, test_runtime.py, test_seal_citation.py |
-| Shared reservations and coordinator receipts | tools/esx/team_budget.py, team_driver.py, team_accounting.py | tests/test_team_operations.py |
+| Shared reservations, coordinator receipts and Arch self-reports | tools/esx/team_budget.py, team_driver.py, team_accounting.py | tests/test_team_operations.py, tests/test_coordinator_cost.py |
 | Bounded tool groups and hook counters | tools/esx/bounded_command.py, runtime_tool_hook.py | tests/test_team_operations.py, test_execution.py |
 | Successful starts and immutable iteration identity | tools/esx/loop_iteration.py, loop_gate.py | tests/test_parity_integration.py, test_execution.py |
 | Required measured reflection and recurring owners | tools/esx/team_retrospective.py | tests/test_parity_integration.py, test_team_operations.py, test_retro_success.py |

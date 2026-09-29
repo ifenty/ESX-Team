@@ -15,7 +15,13 @@ from project import STATE, atomic_json, json_file, require
 
 
 def prepare_done(root, packet, verification, metadata):
+    import team_accounting
     start = json_file(root, STATE + '/issue-start.json')
+    with team_accounting.phase(root, start['id'], 'closeout', role='arch'):
+        return _prepare_done(root, start, packet, verification, metadata)
+
+
+def _prepare_done(root, start, packet, verification, metadata):
     require(packet.get('id') == start['id'] and packet.get('timestamp') == start['timestamp'], 'packet must match the active iteration')
     allowed = {'summary', 'tests_status', 'milestone', 'lessons', 'lessons_na', 'rules_updated', 'rules_updated_na', 'git', 'communication'}
     require(isinstance(metadata, dict) and set(metadata) <= allowed, 'metadata has unsupported fields')
