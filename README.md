@@ -280,6 +280,23 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.2: permission witness and matcher refinements
+
+Two follow-ups to 1.5.1, found while deploying it to MITgcm_new_runoff.
+
+- **The probe no longer fails when a project allows `mkdir`.** The live permission
+  witness now uses the first of `mkdir`, `touch`, `ln -s`, `cp /dev/null` and
+  `install -d` (each creating only a probe-owned path) that the settings do not
+  allow. If the settings allow all of them, or the CLI runs in bypassPermissions,
+  the witness checks the allowed path only and records why, instead of failing.
+- **Quoted operators are data.** `permission_match` now detects `<`, `>` and `&`
+  only outside quotes, so `python3 -c "... a > b ..."` or `grep '<tag>'` gets the
+  bounded, explicitly allowed path. Whole-token output discards (`2>&1`,
+  `>/dev/null`, `2>/dev/null`, ...) remain accepted. Heredocs, file redirects and
+  background jobs still get no ESX decision: they reach Claude's own check and are
+  denied in headless default mode. Roles should write scripts with the Write tool
+  and run them as `python3 file.py`.
+
 ## Version 1.5.1: headless roles can run Bash again
 
 Six fixes for failures that two receiving projects (1D_Mixing_Model and

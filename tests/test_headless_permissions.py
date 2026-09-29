@@ -56,6 +56,15 @@ class MatcherTests(unittest.TestCase):
                         'cat <<EOF\nx\nEOF', '(grep x f)', 'grep "x f', 'head <(python3 x.py)'):
             self.assertIsNone(pm.decide(command, self.rules), command)
         self.assertEqual(pm.decide('grep x f 2>&1 | head -3', self.rules), 'allow')
+        self.assertEqual(pm.decide('grep x f 2>/dev/null; head f >/dev/null', self.rules), 'allow')
+        for command in ('grep x f 2>err.txt', 'sed -n 1p f >>log', 'grep x f >/dev/nullx', 'cat > f <<EOF\nx\nEOF'):
+            self.assertIsNone(pm.decide(command, self.rules), command)
+
+    def test_quoted_operators_are_data_not_redirects(self):
+        multi = 'python3 -c "import sys\nif len(sys.argv) > 0 and 1 < 2: print(1 & 3)"'
+        self.assertEqual(pm.decide(multi, self.rules), 'allow')
+        self.assertEqual(pm.decide("grep '<tag>' f | head -1", self.rules), 'allow')
+        self.assertIsNone(pm.decide('python3 -c "print(1)" > out.txt', self.rules))
         self.assertEqual(pm.decide("grep 'a;b|c' f", self.rules), 'allow')
 
     def test_deny_and_ask_rules_win(self):
@@ -177,6 +186,47 @@ class StopHookTests(unittest.TestCase):
             self.step()  # cap reached: the iteration advances and the wait count resets
             self.assertIn('iteration: 2\n', self.state.read_text())
             self.assertNotIn('dispatch_waits', self.state.read_text())
+
+
+class WitnessSelectionTests(unittest.TestCase):
+    """MITgcm_new_runoff allows `Bash(mkdir *)`; the witness must not report that as failure."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / '.claude').mkdir()
+        patcher = patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.root / 'none')})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def witness(self, allow):
+        (self.root / '.claude/settings.local.json').write_text(json.dumps({'permissions': {'allow': allow}}))
+        seen = {}
+        def fake_turn(root, **kwargs):
+            seen['prompt'] = kwargs['prompt']
+            allowed = kwargs['prompt'].split('1. ')[1].split('\n')[0]
+            stream = Path(root) / 'stream.jsonl'
+            stream.write_text(json.dumps({'type': 'assistant', 'message': {'content': [
+                {'type': 'tool_use', 'id': 'a', 'input': {'command': allowed}}]}}) + '\n' + json.dumps(
+                {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'a',
+                 'content': allowed.split()[-1]}]}}) + '\n')
+            return {'stream': {'path': 'stream.jsonl'}, 'effective_permission_mode': 'default'}
+        with patch.object(runtime, 'run_turn', fake_turn):
+            return runtime.permission_witness(self.root), seen['prompt']
+
+    def test_allowed_mkdir_selects_another_write_command(self):
+        value, prompt = self.witness(['Bash(printf *)', 'Bash(mkdir *)'])
+        self.assertTrue(value['denied_command'].startswith('touch '), value)
+        self.assertIn('2. touch ', prompt)
+
+    def test_all_write_commands_allowed_checks_allow_path_only(self):
+        value, prompt = self.witness(['Bash(printf *)', 'Bash(mkdir *)', 'Bash(touch *)', 'Bash(ln *)',
+                                      'Bash(cp *)', 'Bash(install *)'])
+        self.assertIsNone(value['denied_command'])
+        self.assertNotIn('2. ', prompt)
+        self.assertEqual(value['status'], 'passed')
+        self.assertIn('only the allowed path was checked', value['note'])
 
 
 class PreflightTests(unittest.TestCase):

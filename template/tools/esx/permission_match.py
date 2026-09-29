@@ -106,23 +106,39 @@ def split_command(command):
             continue
         if char in '(){}':
             return None  # subshells and groups
+        if char in '<>&':
+            # Only unquoted operators matter; quoted text such as python3 -c "a > b"
+            # is data. Discarding output is fine; any other redirect, heredoc or
+            # background job gets no decision.
+            safe = redirect_at(command, index)
+            if safe is None:
+                return None
+            start, end = safe
+            if start < index:
+                current.pop()  # the file-descriptor digit already consumed
+            index = end
+            continue
         current.append(char)
         index += 1
     if quote:
         return None
     segments.append(''.join(current))
-    cleaned = []
-    for segment in segments:
-        segment = segment.strip()
-        if not segment:
-            continue
-        for redirect in SAFE_REDIRECTS:
-            segment = segment.replace(' ' + redirect, '')
-        segment = segment.strip()
-        if any(c in segment for c in '<>&'):
-            return None  # file redirection, heredoc or a background job
-        cleaned.append(' '.join(segment.split()))
+    cleaned = [' '.join(segment.split()) for segment in segments if segment.strip()]
     return cleaned or None
+
+
+def redirect_at(command, index):
+    """Span of a whole-token safe redirect at an unquoted operator, else None."""
+    for token in sorted(SAFE_REDIRECTS, key=len, reverse=True):
+        start = index - 1 if token[0].isdigit() else index
+        if start < 0 or not command.startswith(token, start):
+            continue
+        end = start + len(token)
+        before_ok = start == 0 or command[start - 1].isspace()
+        after_ok = end == len(command) or command[end].isspace() or command[end] in ';|&'
+        if before_ok and after_ok:
+            return start, end
+    return None
 
 
 def decide(command, rules):
