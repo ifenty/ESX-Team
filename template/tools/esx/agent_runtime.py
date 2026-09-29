@@ -627,7 +627,8 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
               or (iteration_timestamp and footer.get("iteration_timestamp") != iteration_timestamp)):
             status, error = "incomplete", "missing, malformed, or mismatched report footer"
         if status == 'completed' and not probe:
-            errors = footer_contract.validate(root, role, footer, issue, correction_round, active, session)
+            errors = footer_contract.validate(root, role, footer, issue, correction_round, active, session,
+                                             ((review or {}).get('maintenance') or {}).get('documentation'))
             if errors:
                 status, error = 'incomplete', '; '.join(errors)
         (turn / "report.md").write_text(message)

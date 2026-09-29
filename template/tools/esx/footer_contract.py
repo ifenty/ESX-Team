@@ -19,7 +19,27 @@ def example(root, role):
     return value
 
 
-def validate(root, role, footer, issue, correction_round, start=None, agent_id=None):
+def stale_citation(cited, expected):
+    """Name both hashes when a reviewer cites a seal other than the current one.
+
+    Every implementer correction re-seals the documentation report, so a
+    confirming reviewer can carry a superseded reference from an earlier round.
+    Reporting it at capture lets the reviewer correct it in the same turn.
+    """
+    if not isinstance(expected, dict) or cited == expected:
+        return None
+    sha = cited.get('sha256') if isinstance(cited, dict) else None
+    return ('documentation_review.report cites a superseded or different sealed documentation report: cited sha256 '
+            + str(sha) + ', expected current sha256 ' + str(expected.get('sha256')) + ' at '
+            + str(expected.get('path')) + '; read that exact file and cite it verbatim')
+
+
+def validate(root, role, footer, issue, correction_round, start=None, agent_id=None, expected_report=None):
+    """Return capture-time footer errors.
+
+    expected_report is the current sealed documentation reference from the
+    validated review packet; a Richard approval citing any other report fails.
+    """
     errors = []
     if not isinstance(footer, dict):
         return ['missing structured footer']
@@ -77,6 +97,9 @@ def validate(root, role, footer, issue, correction_round, start=None, agent_id=N
                         raise ValueError('documentation_review.notes needs a substantive explanation')
                     if review.get('status') != 'confirmed':
                         raise ValueError('documentation_review.status must be confirmed')
+                    stale = stale_citation(review.get('report'), expected_report)
+                    if stale:
+                        raise ValueError(stale)
                     report = docs.load(Path(root), review.get('report'), 'documentation', issue)
                     docs.validate_report(Path(root), report, issue, start['maintenance']['baseline'])
         except (ValueError, OSError, KeyError, TypeError) as exc:
