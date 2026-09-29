@@ -5,13 +5,14 @@ Preparation copies the reviewed packet and guarded receipt; mandatory judgments
 come from metadata. It creates an unaccepted draft and leaves the open entry in
 open_issues.md: loop_gate.py --check-done moves it to closed_issues.md only on
 acceptance. Promotion (optional) stages a curated closed entry through the full gate.
+rebind-receipt re-points a prepared closeout at a later matching final receipt.
 """
 import argparse
 import json
 from pathlib import Path
 import sys
 import ledger_transaction
-from project import STATE, atomic_json, json_file, require
+from project import STATE, atomic_json, digest, json_file, local, require
 
 
 def prepare_done(root, packet, verification, metadata):
@@ -41,6 +42,33 @@ def _prepare_done(root, start, packet, verification, metadata):
     return {'status':'prepared', 'path': STATE + '/issue-done.json', 'accepted':False}
 
 
+def rebind_receipt(root):
+    """Point a prepared closeout at current.json after a successful re-run.
+
+    Refuses unless the current receipt passed for this closeout's own review
+    signature; the rebound record must then pass the gate's receipt check.
+    """
+    import final_verification
+    path = root / STATE / 'issue-done.json'
+    done = json_file(root, STATE + '/issue-done.json')
+    old = (done.get('verification') or {}).get('receipt')
+    require(isinstance(old, dict), 'no prepared closeout receipt to re-bind; run prepare-done first')
+    if not local(root, STATE + '/final-verification/current.json').exists():
+        raise ValueError(final_verification.no_current_receipt(root, done))
+    ref = json_file(root, STATE + '/final-verification/current.json')
+    require(ref.get('path') == f"{STATE}/final-verification/{ref.get('sha256')}.json", 'invalid current receipt path')
+    record = json_file(root, ref['path'])
+    require(digest(record) == ref['sha256'], 'current final verification receipt was modified')
+    require(record.get('status') == 'PASS', 'current final verification receipt did not pass')
+    recorded, expected = (record.get('identity') or {}).get('review_signature'), final_verification.review_signature(done)
+    require(recorded == expected, f'current receipt review_signature {recorded} does not match the closeout record {expected}; '
+                                  're-run final_verification.py run with a packet matching the closeout')
+    rebound = dict(done, verification=dict(done['verification'], receipt=ref, scientific=record['scientific']))
+    final_verification.check_receipt(root, rebound)
+    atomic_json(path, rebound)
+    return {'status': 'rebound', 'path': STATE + '/issue-done.json', 'previous': old, 'receipt': ref, 'accepted': False}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[2])
@@ -52,10 +80,13 @@ def main():
     for name in ('issue','closure','expected-sha256'):
         promote.add_argument('--'+name,required=True)
     promote.add_argument('--apply',action='store_true')
+    sub.add_parser('rebind-receipt',help='re-point issue-done.json at final-verification/current.json')
     a=p.parse_args();root=a.root.resolve()
     try:
         if a.command=='promote':
             value=ledger_transaction.promote(root,'esx',a.issue,json_file(root,a.closure),a.expected_sha256,a.apply)
+        elif a.command=='rebind-receipt':
+            value=rebind_receipt(root)
         else:
             value=prepare_done(root,json_file(root,a.packet),json_file(root,a.verification),json_file(root,a.metadata))
         print(json.dumps(value,indent=2));return 0
