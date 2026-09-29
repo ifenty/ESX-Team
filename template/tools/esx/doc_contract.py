@@ -167,7 +167,7 @@ def navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
         return _navigate(root, issue, base_ref, role, map_ref, targets, docs, use)
 
 
-def _navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
+def _navigate(root, issue, base_ref, role, map_ref, targets, docs, use, reused_from=None):
     """Print selected references and record how the role will use this dependency slice."""
     load(root, base_ref, 'baseline', issue)
     require(role in ROLES, 'unknown orientation role')
@@ -189,7 +189,61 @@ def _navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
     payload.update(baseline=base_ref, role=role, map=map_ref, targets=targets,
                    documents=docs, use=use,
                    references=[{k: e[k] for k in ('ref', 'sha256', 'components')} for e in entries])
+    if reused_from is not None:
+        payload['reused_from'] = reused_from
     return save(root, payload)
+
+
+def reuse_navigate(root, issue, original_ref, use, base_ref=None, role=None):
+    import team_accounting
+    with team_accounting.phase(root, issue, 'orientation'):
+        return _reuse_navigate(root, issue, original_ref, use, base_ref, role)
+
+
+def _reuse_navigate(root, issue, original_ref, use, base_ref=None, role=None):
+    """Re-run a prior orientation's map, targets and documents under a fresh use.
+
+    This removes only the retyping of identical arguments. The current excerpt of
+    every reference is still printed through `_navigate`, and the caller must write
+    a new use explanation; no hash or other value echoed by a stale-orientation
+    refusal is accepted. When a changed reference is not one of the original's
+    declared targets or documents (the map heading), or a declared reference no
+    longer resolves, the slice moved beyond what was read and full navigate is
+    required.
+    """
+    record = load(root, original_ref, 'orientation', issue)
+    require(base_ref is None or record.get('baseline') == base_ref,
+            'reused orientation belongs to another baseline; run full navigate')
+    require(role is None or record.get('role') == role,
+            'reused orientation belongs to another role; run full navigate')
+    validate_orientation(root, original_ref, issue, record.get('baseline'), record.get('role'), fresh=False)
+    require(isinstance(use, str) and use.strip(),
+            'navigate --reuse-args requires a freshly written --use explaining the current excerpts')
+    words = lambda text: ' '.join(str(text).split()).casefold()
+    require(words(use) != words(record['use']),
+            '--use repeats the original orientation; write a fresh explanation after reading the current excerpts')
+    declared = set(record['targets']) | set(record['documents'])
+    outside, missing, echoed = [], [], {original_ref.get('sha256')}
+    for entry in record['references']:
+        echoed.add(entry['sha256'])
+        try:
+            current = excerpt(root, entry['ref'])
+        except (OSError, ValueError):
+            missing.append(entry['ref'])
+            continue
+        echoed.add(current['sha256'])
+        if current['sha256'] != entry['sha256'] and entry['ref'] not in declared:
+            outside.append(entry['ref'])
+    require(not any(value and value in use for value in echoed),
+            '--use cites orientation hashes; hashes echoed by a stale-orientation refusal are not an '
+            'acknowledgement, so explain what the current excerpts show')
+    require(not outside, 'navigate --reuse-args refused: changed targets lie outside the original orientation\'s '
+            f'declared targets and documents: {json.dumps(outside)}; the dependency slice moved beyond what was read, '
+            'so run full navigate with explicit --map/--target/--doc')
+    require(not missing, f'navigate --reuse-args refused: recorded references no longer resolve: {json.dumps(missing)}; '
+            'run full navigate with the current owning references')
+    return _navigate(root, issue, record['baseline'], record['role'], record['map'], record['targets'],
+                     record['documents'], use, reused_from=original_ref)
 
 
 def validate_orientation(root, ref, issue, base_ref, role, fresh=True):
@@ -225,8 +279,9 @@ def validate_orientation(root, ref, issue, base_ref, role, fresh=True):
             except (OSError, ValueError) as exc:
                 stale.append({'target': entry['ref'], 'before': entry['sha256'], 'after': None, 'error': str(exc)})
     require(not stale, f'stale {role} orientation: receipt={ref}; changes={json.dumps(stale)}; '
-            f'resume the same {role}, inspect every changed target, navigate again, '
-            'run the affected independent check and return a fresh footer')
+            f'resume the same {role}, inspect every changed target, navigate again '
+            '(`doc_contract.py navigate --issue <id> --reuse-args <receipt> --use <fresh explanation>` reprints the '
+            'same map, targets and documents), run the affected independent check and return a fresh footer')
     return record
 
 
@@ -672,6 +727,14 @@ def parse_ref(value):
     return json.loads(value)
 
 
+def parse_receipt(value):
+    """Accept a JSON orientation reference or its bare content digest."""
+    text = value.strip()
+    if len(text) == 64 and all(c in '0123456789abcdef' for c in text):
+        return {'path': f'{STORE}/{text}.json', 'sha256': text}
+    return parse_ref(text)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
@@ -682,11 +745,13 @@ def main():
     capture.add_argument('--reason')
     nav = sub.add_parser('navigate', help='display a bounded dependency slice and save role evidence')
     nav.add_argument('--issue', required=True)
-    nav.add_argument('--baseline', type=parse_ref, required=True)
-    nav.add_argument('--role', choices=ROLES, required=True)
-    nav.add_argument('--map', required=True)
-    nav.add_argument('--target', action='append', required=True, help='path::qualified.symbol or path::<module>')
-    nav.add_argument('--doc', action='append', required=True, help='path#heading or path::symbol')
+    nav.add_argument('--baseline', type=parse_ref, help='required unless --reuse-args; must match when both are given')
+    nav.add_argument('--role', choices=ROLES, help='required unless --reuse-args; must match when both are given')
+    nav.add_argument('--map')
+    nav.add_argument('--target', action='append', help='path::qualified.symbol or path::<module>')
+    nav.add_argument('--doc', action='append', help='path#heading or path::symbol')
+    nav.add_argument('--reuse-args', type=parse_receipt, metavar='ORIENTATION_REF',
+                     help='reload map, targets and documents from a prior orientation receipt; requires a fresh --use')
     nav.add_argument('--use', required=True)
     reuse = sub.add_parser('check-orientation', help='check whether saved navigation can be reused')
     reuse.add_argument('--issue', required=True)
@@ -704,7 +769,15 @@ def main():
     try:
         if args.command == 'baseline':
             result = baseline(args.root, args.issue, args.git_base, args.reason)
+        elif args.command == 'navigate' and args.reuse_args is not None:
+            if args.map or args.target or args.doc:
+                parser.error('--reuse-args reloads --map/--target/--doc; omit them or run full navigate')
+            result = reuse_navigate(args.root, args.issue, args.reuse_args, args.use, args.baseline, args.role)
         elif args.command == 'navigate':
+            missing = [flag for flag, value in (('--baseline', args.baseline), ('--role', args.role), ('--map', args.map),
+                       ('--target', args.target), ('--doc', args.doc)) if value is None]
+            if missing:
+                parser.error('the following arguments are required: ' + ', '.join(missing))
             result = navigate(args.root, args.issue, args.baseline, args.role, args.map, args.target, args.doc, args.use)
         elif args.command == 'draft':
             result = draft(args.root, args.issue, args.baseline, args.previous)

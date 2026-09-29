@@ -93,6 +93,16 @@ symbol's orientation when its recorded dependencies remain identical. Dependency
 lists remain a human responsibility; a static source map cannot infer every
 scientific dependency.
 
+When a commissioned edit changed only references the stale orientation already
+declared as targets or documents, refresh it without retyping the arguments:
+`doc_contract.py navigate --issue <id> --reuse-args <receipt> --use '<fresh
+explanation>'`. The receipt is the prior orientation's JSON reference or digest.
+The command reloads its role, baseline, map, targets and documents and prints the
+current excerpt of every one. It refuses a missing `--use` or one that repeats the
+original. It also refuses when the map heading changed or a reference no longer
+resolves: the slice moved beyond what was read, so run full `navigate`. No hash
+or other value echoed by the refusal clears a stale orientation.
+
 ## Resume after configuration changes
 
 Runtime contracts retain the raw fingerprint and a sanitized effective manifest.

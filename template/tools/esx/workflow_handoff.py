@@ -98,7 +98,9 @@ def readiness(root, packet, stage='review', owner=None):
           'Complete and seal the documentation report; rebuild using its exact reference.')
     check('ARCH_ORIENTATION_INVALID', 'maintenance.orientation',
           lambda: docs.validate_orientation(root, maintenance.get('orientation'), issue, base, 'arch'),
-          'Arch must inspect changed targets and record a fresh orientation.')
+          'Arch must inspect changed targets and record a fresh orientation; when only declared targets or '
+          'documents changed, `doc_contract.py navigate --issue <id> --reuse-args <receipt> --use <fresh explanation>` '
+          'reprints them without retyping the arguments.')
     handoff = packet.get('handoff') or {}
     if not isinstance(handoff, dict):
         handoff = {}
