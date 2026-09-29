@@ -31,7 +31,9 @@ structure; Arch judges whether the stated semantic risk matches the change.
 Required: id, timestamp, outcome (completed/partial/blocked), summary, workflow,
 scope_decisions, git and communication or Slack disposition. Partial/blocked work
 retains the open entry and next_step. Blocked work mirrors the exact blocked_by.
-Completed work has its original UUID in closed_issues.md and passes required evidence.
+Completed work passes required evidence; acceptance by --check-done then moves its
+open entry, preserved byte for byte apart from heading, Status and Date Resolved, into
+closed_issues.md. An entry already moved is accepted; a refusal moves nothing.
 lessons lists actual active LL IDs, or an empty list when none was warranted.
 
 subagents maps only used roles to arrays of dispatch_id and dispatch_event_id.

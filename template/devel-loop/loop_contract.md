@@ -64,10 +64,13 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 5. Assemble a review packet with exact completion events. For a scientific change,
    the assigned owner uses final_verification.py after readiness passes. Preserve
    its result and receipt. A failed attempt cannot reuse an earlier approval result.
-6. Prepare the closeout and use loop_lifecycle.py promote to preview/apply an
-   accepted issue move with recovery evidence, or retain partial/blocked work with
-   its next step and dependency. Complete issue-done.json using the start timestamp.
-7. Run --check-done. PASS saves the complete closeout in durable history.
+6. Prepare the closeout, or retain partial/blocked work with its next step and
+   dependency. Complete issue-done.json using the start timestamp. Do not move a
+   completed entry out of open_issues.md yourself: the ledger records only accepted work.
+7. Run --check-done. PASS moves a completed entry into closed_issues.md (Status
+   Resolved, Date Resolved = acceptance time) under a journaled transaction and saves
+   the complete closeout in durable history. A refusal moves nothing. `loop_lifecycle.py
+   promote` remains available to stage a curated closed entry through the same gate.
 8. Drain required authorized notifications, retaining provider receipts or concrete
    errors in the outbox. If issue-done communication fields change, rerun --check-done
    to refresh the matching history entry atomically.

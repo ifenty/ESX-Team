@@ -2,8 +2,9 @@
 """Explicit closeout preparation and recoverable scientific issue promotion.
 
 Preparation copies the reviewed packet and guarded receipt; mandatory judgments
-come from metadata. It creates an unaccepted draft. Promotion stages the ledgers
-and runs the full gate; check-done records the accepted iteration afterwards.
+come from metadata. It creates an unaccepted draft and leaves the open entry in
+open_issues.md: loop_gate.py --check-done moves it to closed_issues.md only on
+acceptance. Promotion (optional) stages a curated closed entry through the full gate.
 """
 import argparse
 import json
@@ -22,7 +23,7 @@ def prepare_done(root, packet, verification, metadata):
             'metadata needs a substantive summary and tests_status')
     require(isinstance(metadata.get('git'), dict) and isinstance(metadata.get('communication'), dict), 'record explicit Git and communication dispositions')
     done = dict(packet, **metadata, outcome='completed', state_version=start.get('state_version',1),
-                iteration=start['iteration'], start_timestamp=start['timestamp'], open_issues_md_updated=True)
+                iteration=start['iteration'], start_timestamp=start['timestamp'], open_issues_md_updated=False)
     done['verification'] = dict(packet.get('verification') or {}, final_owner=start['workflow']['final_verify_owner'])
     if start['workflow']['kind'] == 'scientific_change':
         require(verification.get('receipt') and verification.get('scientific'), 'supply the final_verification.py run result')

@@ -141,6 +141,56 @@ def recover(root, rollback=False):
         return {'status': 'rolled_back' if rollback else 'completed', 'transaction': transaction_id}
 
 
+def resolved_entry(text, resolved_at, summary, iteration):
+    """Return an open entry in its closed form; every other byte is preserved."""
+    lines = text.splitlines(keepends=True)
+    lines[0] = '## 🟢 RESOLVED: ' + lines[0][3:].split(':', 1)[-1].strip() + '\n'
+    text = re.sub(r'^\*\*Status\*\*\s*:.*$', '**Status**: Resolved', ''.join(lines), count=1, flags=re.M)
+    stamp = '**Date Resolved**: ' + resolved_at
+    if re.search(r'^\*\*Date Resolved\*\*\s*:.*$', text, re.M):
+        text = re.sub(r'^\*\*Date Resolved\*\*\s*:.*$', lambda _: stamp, text, count=1, flags=re.M)
+    else:
+        anchor = re.search(r'^\*\*Date Identified\*\*\s*:.*$', text, re.M) or re.search(r'^\*\*Status\*\*.*$', text, re.M)
+        text = text[:anchor.end()] + '\n' + stamp + text[anchor.end():]
+    note = ' '.join(str(summary).split())
+    return (text.rstrip() + '\n\n### Gate acceptance\n\nAccepted by `loop_gate.py --check-done` at ' + resolved_at
+            + ' for iteration ' + str(iteration) + '. ' + note + '\n')
+
+
+def close_on_acceptance(root, uuid, resolved_at, summary, iteration):
+    """Move an open ESX entry to closed_issues.md only if the staged move passes --check-done.
+
+    Returns the applied (before, after) texts, or None when there is no single open
+    entry to move. A validation failure raises and leaves both ledgers untouched.
+    """
+    root = Path(root).resolve()
+    names = ('open_issues.md', 'closed_issues.md')
+    old_open, old_closed = (read(root, name) for name in names)
+    if old_open is None or old_closed is None:
+        return None
+    matches = [row for row in si.parse(root / names[0], text=old_open) if row.uuid == uuid]
+    if len(matches) != 1 or any(row.uuid == uuid for row in si.parse(root / names[1], text=old_closed)):
+        return None
+    issue = matches[0]
+    start = sum(len(line) for line in old_open.splitlines(keepends=True)[:issue.line - 1])
+    end = start + len(issue.text.rstrip())
+    end += len(old_open[end:]) - len(old_open[end:].lstrip())
+    remaining = old_open[:start] + old_open[end:] if end < len(old_open) else old_open[:start].rstrip() + '\n'
+    after = {names[0]: remaining,
+             names[1]: old_closed.rstrip() + '\n\n' + resolved_entry(issue.text, resolved_at, summary, iteration)}
+    before = {names[0]: old_open, names[1]: old_closed}
+    transact(root, 'esx', after, {name: digest(text) for name, text in before.items()}, apply=True)
+    return before, after
+
+
+def revert(root, before, after):
+    """Restore ledgers moved by close_on_acceptance when final acceptance fails."""
+    with lock(root):
+        for name in after:
+            if read(root, name) == after[name]:
+                replace(root, name, before[name])
+
+
 def promote(root, family, uuid, closure, expected_sha256, apply=False):
     root = Path(root).resolve()
     opened, closed = (si.OPEN, si.CLOSED) if family == 'team' else (Path('open_issues.md'), Path('closed_issues.md'))
