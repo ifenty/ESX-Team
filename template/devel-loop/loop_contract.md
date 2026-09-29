@@ -71,7 +71,9 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 8. Drain required authorized notifications, retaining provider receipts or concrete
    errors in the outbox. If issue-done communication fields change, rerun --check-done
    to refresh the matching history entry atomically.
-9. Generate --draft-retro, review its measured accounting, and save retrospective.json.
+9. Record coordinator cost with `team_accounting.py record-arch` (see
+   [bounded operations](team_operations.md)), then generate --draft-retro, review
+   its measured accounting and cost_scope, and save retrospective.json.
    Run --check-retro; resolve due process follow-ups. This is mandatory even with
    an empty queue. See [self-improvement](self-improvement/README.md).
 10. Continue through --next. An interruption resumes existing assignments and

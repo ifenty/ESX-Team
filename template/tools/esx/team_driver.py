@@ -95,7 +95,7 @@ def _run(root, *, host='claude', model=None, max_passes=5, usd=30, minutes=120,
         started = accounting.now(); error = None; proc = None
         print(f'Coordinator pass {attempt+1}: reserved ${reservation["reserved_usd"]:.2f}',flush=True)
         try:
-            with accounting.phase(root, issue, 'coordination'), (folder/'stdout.jsonl').open('w') as output, (folder/'stderr.txt').open('w') as stderr:
+            with accounting.phase(root, issue, 'coordination', role='arch'), (folder/'stdout.jsonl').open('w') as output, (folder/'stderr.txt').open('w') as stderr:
                 proc = subprocess.Popen(command,cwd=root,env=env,stdin=subprocess.PIPE,
                                         stdout=output,stderr=stderr,text=True,start_new_session=True)
                 proc.communicate(prompt if host=='claude' else None,

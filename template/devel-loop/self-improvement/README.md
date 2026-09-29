@@ -7,7 +7,8 @@ the debt without extending a time or money allocation.
 
 ## Close the feedback loop
 
-After `python3 tools/esx/loop_gate.py --check-done`:
+After `python3 tools/esx/loop_gate.py --check-done`, record coordinator cost
+([record-arch](../team_operations.md#coordinator-arch-cost)), then:
 
 ```sh
 python3 tools/esx/loop_gate.py --draft-retro
@@ -29,6 +30,8 @@ Unpublished fixes stay open with an Implementation-Reference. A verified-effecti
 claim additionally needs hashed, comparable before/after measurements showing the
 stated improvement. An empty problems list needs an evidence-based explanation of
 at least 60 characters. Missing cost observations are explicitly unknown.
+`measured.cost_scope` states whether coordinator cost is included; cite it rather
+than presenting dispatched-agent `cost_usd` as the iteration's total.
 
 Use `carry_forward` for new brief rules. Repeated rules are flagged for promotion
 into [the standing rules](../loop_rules.md); retire rules once code enforces them.

@@ -163,7 +163,7 @@ def pin_baseline(root, issue, ref):
 
 def navigate(root, issue, base_ref, role, map_ref, targets, docs, use):
     import team_accounting
-    with team_accounting.phase(root, issue, 'orientation'):
+    with team_accounting.phase(root, issue, 'orientation', role=role):
         return _navigate(root, issue, base_ref, role, map_ref, targets, docs, use)
 
 

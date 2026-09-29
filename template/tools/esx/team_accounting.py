@@ -2,9 +2,14 @@
 """Reconcile ESX effort and provider-reported costs without inventing missing data.
 
 Read retained turns (including historical repair streams), coordinator receipts,
-and phase events. JSON summaries preserve source IDs and coverage gaps. The
-``phase`` context manager appends a timed event; the CLI is read-only unless
---output is supplied. No API calls or price assumptions. Tests: test_team_operations.py.
+phase events and Arch self-reports. JSON summaries preserve source IDs and
+coverage gaps. The ``phase`` context manager appends a timed event, attributed to
+a role when the caller knows it. The interactive main session (Arch) is never
+dispatched, so ``record-arch`` lets it append a self-reported, sourced record of
+its coordination time and cost; those are kept in a separate ``coordinator``
+block and never added to dispatched-agent figures. The summary CLI is read-only
+unless --output is supplied. No API calls or price assumptions.
+Tests: test_team_operations.py, test_coordinator_cost.py.
 """
 import argparse
 from contextlib import contextmanager
@@ -21,6 +26,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = Path('devel-loop/loop_state')
+SELF_REPORTS = 'coordinator_self_reports.jsonl'
 PHASES = ('orientation', 'implementation', 'review', 'verification', 'closeout', 'retrospective', 'waiting', 'coordination')
 
 
@@ -71,11 +77,13 @@ def append(path, payload):
 
 
 @contextmanager
-def phase(root, issue, name, reason=None):
+def phase(root, issue, name, reason=None, role=None):
     if name not in PHASES or (name == 'waiting' and not reason):
         raise ValueError('phase needs a known name and waits need a reason')
     event = {'event_id': uuid.uuid4().hex, 'issue_id': issue, 'phase': name,
              'started_at': now(), 'reason': reason}
+    if role:
+        event['role'] = role
     started = time.monotonic()
     try:
         yield event
@@ -154,9 +162,80 @@ def union_seconds(intervals):
     return sum(b - a for a, b in merged)
 
 
+def record_arch(root, issue, name, minutes, source, usd=None):
+    """Append one self-reported Arch (main session) record for an iteration phase.
+
+    Tools cannot observe the interactive session, so the figure and its
+    provenance come from Arch (e.g. the host's session cost). Recording after
+    --check-done attaches the record to the issue's just-closed iteration.
+    """
+    root = Path(root)
+    if not isinstance(issue, str) or not issue.strip(): raise ValueError('record the issue id')
+    if name not in PHASES: raise ValueError('unknown phase: ' + str(name))
+    if not number(minutes) or minutes <= 0: raise ValueError('minutes must be a positive finite number')
+    if usd is not None and not number(usd): raise ValueError('usd must be a non-negative finite number')
+    if not isinstance(source, str) or len(source.strip()) < 8:
+        raise ValueError('state where the figure came from (--source, at least 8 characters)')
+    attach = None
+    start_path = root / STATE / 'issue-start.json'
+    active = json.loads(start_path.read_text()) if start_path.exists() else {}
+    closed = [r for r in rows(root / STATE / 'loop_history.jsonl') if r.get('id') == issue]
+    if closed and not (active.get('id') == issue and active.get('timestamp') != closed[-1].get('timestamp')):
+        attach = closed[-1].get('start_timestamp') or closed[-1]['timestamp']
+    record = {'record_id': uuid.uuid4().hex, 'issue_id': issue, 'role': 'arch', 'kind': 'self_reported',
+              'phase': name, 'minutes': minutes, 'usd': usd, 'source': source.strip(),
+              'recorded_at': now(), 'iteration_start': attach}
+    append(root / STATE / SELF_REPORTS, record)
+    return record
+
+
 def snapshot(root):
     """One fresh read per report, shared by issue summaries; never cached across runs."""
-    return {'turns': turns(root), 'phases': rows(Path(root) / STATE / 'phase_events.jsonl')}
+    return {'turns': turns(root), 'phases': rows(Path(root) / STATE / 'phase_events.jsonl'),
+            'self_reports': rows(Path(root) / STATE / SELF_REPORTS)}
+
+
+def coordinator(roles, phase_spans, reports, start, end, issue):
+    """Arch figures kept apart from dispatched-agent totals, each with its provenance."""
+    chosen = []
+    for r in reports:
+        if issue and r.get('issue_id') != issue: continue
+        if r.get('iteration_start') and start:
+            if timestamp(r['iteration_start']) != timestamp(start): continue
+        elif (start and timestamp(r['recorded_at']) < timestamp(start)) or (end and timestamp(r['recorded_at']) > timestamp(end)):
+            continue
+        chosen.append(r)
+    driver = roles.get('arch')
+    coverage = 'recorded' if driver or chosen else 'missing'
+    usd = [r['usd'] for r in chosen if r.get('usd') is not None]
+    return {'coverage': coverage,
+            'tool_measured': {'elapsed_seconds': union_seconds(phase_spans),
+                              'effort_seconds': sum(b - a for a, b in phase_spans), 'events': len(phase_spans),
+                              'basis': 'wall time of gate commands run as arch; excludes interactive session time'},
+            'provider_reported_usd': driver['reported_usd'] if driver else None,
+            'self_reported': {'minutes': sum(r['minutes'] for r in chosen) if chosen else None,
+                              'usd': sum(usd) if usd else None,
+                              'records_without_usd': sum(r.get('usd') is None for r in chosen),
+                              'records': [{k: r.get(k) for k in ('record_id', 'phase', 'minutes', 'usd', 'source', 'recorded_at')}
+                                          for r in chosen]},
+            'included_in_reported_usd': 'provider_reported_only' if driver else 'no'}
+
+
+def cost_scope(report):
+    """One sentence stating whether coordinator cost is part of the cost figures."""
+    c = report['coordinator']
+    base = 'cost_usd and span-based figures describe dispatched agents'
+    if c['coverage'] == 'missing':
+        return (base + ' only; coordinator (Arch) cost is NOT included: no Arch accounting record exists '
+                'for this iteration (record one with team_accounting.py record-arch)')
+    parts = []
+    if c['provider_reported_usd'] is not None:
+        parts.append(f"team_driver Arch provider-reported ${c['provider_reported_usd']:.2f} (the only arch entry in cost_usd)")
+    s = c['self_reported']
+    if s['minutes'] is not None:
+        usd = f"${s['usd']:.2f}" if s['usd'] is not None else 'cost unknown'
+        parts.append(f"Arch self-reported {s['minutes']:g} min, {usd} (coordinator.self_reported; not added to cost_usd)")
+    return base + '; coordinator cost is recorded separately: ' + '; '.join(parts)
 
 
 def summary(root, issue=None, start=None, end=None, *, evidence=None, run_id=None):
@@ -209,22 +288,25 @@ def summary(root, issue=None, start=None, end=None, *, evidence=None, run_id=Non
     phases = [r for r in evidence['phases'] if not issue or r['issue_id'] == issue]
     phases = [r for r in phases if (not start or timestamp(r.get('finished_at') or r.get('ts')) >= timestamp(start))
               and (not end or timestamp(r.get('started_at') or r.get('ts')) <= timestamp(end))]
-    by_phase = {}
+    by_phase, arch_spans = {}, []
     for event in phases:
         a, b = timestamp(event['started_at']), timestamp(event['finished_at'])
         if start: a = max(a, timestamp(start))
         if end: b = min(b, timestamp(end))
-        if b >= a: by_phase.setdefault(event['phase'], []).append((a,b))
+        if b >= a:
+            by_phase.setdefault(event['phase'], []).append((a,b))
+            if event.get('role') == 'arch': arch_spans.append((a, b))
     phase_totals = {name: {'elapsed_seconds': union_seconds(spans),
                           'effort_seconds': sum(b-a for a,b in spans), 'events': len(spans)}
                     for name,spans in by_phase.items()}
     child = union_seconds(intervals)
+    arch = coordinator(roles, arch_spans, evidence.get('self_reports', []), start, end, issue)
     return {'schema_version': 2, 'issue_id': issue, 'start': start, 'end': end,
             'span_seconds': span, 'child_elapsed_seconds': child,
             'outside_child_intervals_seconds': max(0, span - child) if span is not None else None,
             'by_role': roles, 'reported_usd': sum(c['reported_usd'] or 0 for c in components),
             'unknown_cost_event_ids': [c['event_id'] for c in components if c['reported_usd'] is None],
-            'coordinator_coverage': 'recorded' if 'arch' in roles else 'missing',
+            'coordinator_coverage': arch['coverage'], 'coordinator': arch,
             'billing_status': 'provider_reported_not_invoice_reconciled',
             'missing_timing_event_ids': [r['event_id'] for r in selected if not r.get('started_at') or not r.get('finished_at')],
             'by_phase': phase_totals, 'phase_events': phases, 'components': components}
@@ -232,12 +314,18 @@ def summary(root, issue=None, start=None, end=None, *, evidence=None, run_id=Non
 
 def measured(report):
     """Canonical retrospective fields, including honest unknown coverage."""
+    c = report['coordinator']
     return {'span_minutes': round(report['span_seconds'] / 60) if report['span_seconds'] is not None else None,
             'dispatches': {r: v['dispatches'] for r, v in report['by_role'].items()},
             'rounds': {r: v['rounds'] for r, v in report['by_role'].items()},
             'cost_usd': {r: v['reported_usd'] for r, v in report['by_role'].items()},
             'unknown_cost_event_ids': report['unknown_cost_event_ids'],
-            'coordinator_coverage': report['coordinator_coverage'], 'billing_status': report['billing_status']}
+            'coordinator_coverage': report['coordinator_coverage'], 'billing_status': report['billing_status'],
+            'coordinator': {'tool_measured_minutes': round(c['tool_measured']['effort_seconds'] / 60, 1),
+                            'self_reported_minutes': c['self_reported']['minutes'],
+                            'self_reported_usd': c['self_reported']['usd'],
+                            'provider_reported_usd': c['provider_reported_usd']},
+            'cost_scope': cost_scope(report)}
 
 
 def concise(report):
@@ -245,18 +333,33 @@ def concise(report):
     elapsed = f'{span / 60:.1f} min' if span is not None else 'elapsed unknown'
     return (f"{report['issue_id'] or 'RUN'}: {elapsed}; child elapsed {report['child_elapsed_seconds']/60:.1f} min; "
             f"reported ${report['reported_usd']:.2f}; unknown costs {len(report['unknown_cost_event_ids'])}; "
-            f"Arch {report['coordinator_coverage']}; not invoice reconciled")
+            f"Arch {report['coordinator_coverage']}; not invoice reconciled\n{cost_scope(report)}")
 
 
-def main():
+def main(argv=None):
+    import sys
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ['record-arch']:
+        p = argparse.ArgumentParser(prog='team_accounting.py record-arch', description=record_arch.__doc__)
+        p.add_argument('--root', type=Path, default=ROOT)
+        p.add_argument('--issue', required=True); p.add_argument('--phase', required=True, choices=PHASES)
+        p.add_argument('--minutes', type=float, required=True); p.add_argument('--usd', type=float)
+        p.add_argument('--source', required=True, help='provenance, e.g. "Claude Code /cost at closeout"')
+        a = p.parse_args(argv[1:])
+        try:
+            print(json.dumps(record_arch(a.root, a.issue, a.phase, a.minutes, a.source, a.usd), indent=2))
+        except ValueError as exc:
+            print(json.dumps({'status': 'blocked', 'reason': str(exc)})); return 1
+        return 0
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', type=Path, default=ROOT)
     p.add_argument('--issue'); p.add_argument('--start'); p.add_argument('--end')
     p.add_argument('--output', type=Path); p.add_argument('--concise', action='store_true')
-    a = p.parse_args()
+    a = p.parse_args(argv)
     report = summary(a.root, a.issue, a.start, a.end)
     if a.output: atomic(a.output, report)
     print(concise(report) if a.concise else json.dumps(report, indent=2))
+    return 0
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': raise SystemExit(main())

@@ -109,6 +109,33 @@ corrections, missing costs and timed phases. Overlapping intervals use unions;
 summed agent effort is distinguished from elapsed time. Orientation, implementation,
 review, verification, closeout, retrospective and coordination are instrumented.
 Other waiting can be measured through `team_accounting.phase(..., 'waiting', reason)`.
+
+### Coordinator (Arch) cost
+
+Arch is the interactive main session, not a dispatched agent, so no turn record
+meters it. Two sources fill the gap, reported in the summary's `coordinator`
+block and never added to dispatched-agent `cost_usd`, `reported_usd` or child
+elapsed time:
+
+- **Tool-measured** (automatic): `--check-start`, orientation, `prepare-done`,
+  verification owned by `arch`, `--check-done` and `--check-retro` append phase
+  events with `role: arch`. This is gate wall time only, so it never by itself
+  sets `coordinator_coverage` to `recorded`.
+- **Self-reported** (Arch, every iteration): after `--check-done` and before
+  `--draft-retro`, record the session's coordination time and cost with its
+  provenance, for example from the host's session cost display:
+
+```sh
+python3 tools/esx/team_accounting.py record-arch --issue UUID --phase coordination \
+  --minutes 35 --usd 4.10 --source "Claude Code /cost delta since --prepare"
+```
+
+A record made after the iteration closed attaches to that closed iteration; one
+made while it is active falls inside its window. Omit `--usd` when the cost is not
+visible; it stays unknown, never zero. `coordinator_coverage` reads `recorded`
+when a self-report or a `team_driver.py` coordinator receipt exists for the
+iteration and `missing` otherwise; the retrospective's `measured.cost_scope`
+states which applies. Recording after `--draft-retro` makes that draft stale.
 Unobserved time, native turn duration and host usage remain coverage gaps; reported
 USD is not an invoice reconciliation. Do not describe missing values as zero.
 

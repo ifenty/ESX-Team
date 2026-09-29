@@ -601,7 +601,7 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             progress({"status": "running", "session_id": session, "event_id": event_id,
                       "role": role, "issue_id": issue})
         started = time.monotonic()
-        with team_accounting.phase(root, issue, 'review' if role == 'richard' else 'implementation'):
+        with team_accounting.phase(root, issue, 'review' if role == 'richard' else 'implementation', role=role):
             result, message, init, code, error, watchdog_kills = _execute(
                 root, turn, state, command, prompt, timeout, tool_timeout)
         usage = team_accounting.stream_usage(turn / 'stdout.jsonl')

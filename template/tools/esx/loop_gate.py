@@ -97,6 +97,10 @@ class Gate:
         return start
 
     def check_start(self):
+        with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'orientation', role='arch'):
+            return self._check_start()
+
+    def _check_start(self):
         team_retrospective.require_clear(self.root)
         team_retrospective.require_followup(self.root)
         start = self.read('issue-start.json')
@@ -124,7 +128,7 @@ class Gate:
             require(not errors, '; '.join(errors))
 
     def check_done(self):
-        with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'closeout'):
+        with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'closeout', role='arch'):
             return self._check_done()
 
     def _check_done(self):
@@ -357,7 +361,7 @@ def main():
             result = team_retrospective.draft(gate.root)
             atomic_json(local(gate.root, f'{STATE}/retrospective-draft.json'), result)
         elif args.check_retro:
-            with team_accounting.phase(gate.root, gate.read('retrospective.json')['id'], 'retrospective'):
+            with team_accounting.phase(gate.root, gate.read('retrospective.json')['id'], 'retrospective', role='arch'):
                 result = team_retrospective.accept(gate.root, gate.read('retrospective.json'))
         elif args.timings:
             result = team_accounting.summary(gate.root)
