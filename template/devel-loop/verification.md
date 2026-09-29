@@ -25,8 +25,31 @@ One owner lock serializes final attempts. Reuse requires the exact reviewed sour
 review events, documentation, inputs, configuration and measured toolchain. A
 failed fresh attempt invalidates the former final receipt. Readiness is checked
 again after execution; drift during the run blocks acceptance. Process interruption
-terminates the verifier's process group and records failure. Test scripts must
-avoid detaching background workers beyond that group.
+terminates the verifier's process group. Test scripts must avoid detaching
+background workers beyond that group.
+
+Each attempt record under `final-verification/` carries one status, and
+`final-verification/latest.json` names the most recent attempt:
+
+- `PASS`: the suite passed on the unchanged reviewed candidate.
+- `FAILED`: the suite reached a non-zero verdict (or timed out) on the candidate.
+- `INTERRUPTED`: the verifier or its child was killed by a signal, or a pytest
+  session ended without its summary line; no verdict exists, so re-run.
+- `SOURCE_CHANGED`: source, configuration or review moved during the run; the
+  outcome describes no single candidate, so re-run after edits finish.
+
+Non-PASS attempts record their `log` and count of `FAILED`/`ERROR` lines. When no
+current receipt exists, `--check-done` names the latest attempt, its status and log.
+
+After a successful re-run, re-point the prepared closeout at the current receipt:
+
+```sh
+python3 tools/esx/loop_lifecycle.py rebind-receipt
+```
+
+It refuses unless `current.json` is an intact PASS whose `review_signature` equals
+the closeout record's, and the rebound record must pass the gate's receipt check.
+Never hand-edit `verification.receipt` in `issue-done.json`.
 
 For Richard's independent check, use his actual runtime identity:
 

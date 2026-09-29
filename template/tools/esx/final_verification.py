@@ -119,12 +119,58 @@ def ready(root, review, owner):
             'scientific_fingerprint': verify.fingerprint(root, 'scientific', cfg['verification']['scientific'])}
 
 
+def latest_attempt(root):
+    """Return the most recent attempt reference and record, or (None, None)."""
+    path = local(root, f'{STATE}/final-verification/latest.json')
+    try:
+        ref = json.loads(path.read_text())
+        require(ref.get('path') == f"{STATE}/final-verification/{ref.get('sha256')}.json", 'invalid attempt path')
+        record = json_file(root, ref['path'])
+        require(digest(record) == ref['sha256'], 'attempt record was modified')
+        return ref, record
+    except (ValueError, OSError, KeyError, TypeError, AttributeError):
+        return None, None
+
+
+def no_current_receipt(root, done):
+    """Explain the absence of current.json from the latest recorded attempt."""
+    ref, record = latest_attempt(root)
+    if record is None:
+        return 'no current final verification receipt and no readable recorded attempt; run final_verification.py run'
+    status, log = record.get('status'), record.get('log') or 'not recorded'
+    head = f"no current final verification receipt: the latest attempt {ref['path']} is {status} (log {log})"
+    identity = record.get('identity') or {}
+    if (identity.get('issue_id'), identity.get('timestamp')) != (done.get('id'), done.get('timestamp')):
+        head += ' and belongs to another iteration'
+    if status == 'INTERRUPTED':
+        failures = record.get('failure_lines')
+        verdict = ('no test failed before the interruption' if failures == 0 else
+                   f'{failures} failure lines were logged before the interruption' if failures else
+                   'the suite reached no verdict')
+        return f"{head}; the run was interrupted ({record.get('error')}), {verdict}; re-run final_verification.py run"
+    if status == 'SOURCE_CHANGED':
+        return f"{head}; source or review changed during the run, so it reached no verdict on the candidate; re-run after edits finish"
+    if status == 'FAILED':
+        return f"{head}; the scientific suite reported a failure ({record.get('error')}); inspect the log"
+    return f'{head}; a later attempt cleared the current receipt; re-run final_verification.py run'
+
+
+def attempt_status(exc):
+    if isinstance(exc, (KeyboardInterrupt, InterruptedError, verify.RunInterrupted)):
+        return 'INTERRUPTED'
+    if isinstance(exc, verify.SourceChanged):
+        return 'SOURCE_CHANGED'
+    return 'FAILED'
+
+
 def check_receipt(root, done):
     """Require one intact, successful qualification of the exact reviewed candidate."""
     ref = (done.get('verification') or {}).get('receipt')
     require(isinstance(ref, dict), 'final scientific verification receipt is required')
     sha = ref.get('sha256')
     require(ref.get('path') == f'{STATE}/final-verification/{sha}.json', 'invalid final verification receipt path')
+    if not local(root, f'{STATE}/final-verification/current.json').exists():
+        raise ValueError(no_current_receipt(root, done))
     require(json_file(root, f'{STATE}/final-verification/current.json') == ref, 'final verification receipt was invalidated by a later attempt')
     record = json_file(root, ref['path'])
     require(digest(record) == sha, 'final verification receipt was modified')
@@ -175,6 +221,7 @@ def run(root, review, owner, fresh=False):
                 ref = {'path': f'{STATE}/final-verification/{sha}.json', 'sha256': sha}
                 atomic_json(local(root, ref['path']), record)
                 atomic_json(index, ref)
+                atomic_json(local(root, f'{STATE}/final-verification/latest.json'), ref)
                 return {'status': 'REUSED EVIDENCE', 'receipt': ref, 'scientific': old['scientific']}
             except (ValueError, OSError, KeyError, TypeError):
                 pass
@@ -185,14 +232,29 @@ def run(root, review, owner, fresh=False):
             # A new approved identity receives a fresh scientific run. Only the
             # wrapper's intact exact-state receipt permits final result reuse.
             result = verify.run(root, 'scientific', owner, fresh=True, _lease=token)
-            require(identity == ready(root, review, owner), 'source or review changed during final scientific verification')
+            log = json_file(root, result['evidence']['path'])['log']
+            try:
+                after = ready(root, review, owner)
+            except ValueError as exc:
+                raise verify.SourceChanged(f'candidate no longer ready after final scientific verification: {exc}', log) from exc
+            if identity != after:
+                raise verify.SourceChanged('source or review changed during final scientific verification', log)
             record = {'version': 1, 'status': 'PASS', 'identity': identity,
                       'scientific': result['evidence'], 'finished_at': now()}
         except BaseException as exc:
-            failure = {'version': 1, 'status': 'FAILED', 'identity': identity,
+            failure = {'version': 1, 'status': attempt_status(exc), 'identity': identity,
                        'error': type(exc).__name__ + ': ' + str(exc), 'finished_at': now()}
+            log = getattr(exc, 'log', None)
+            if log:
+                failure['log'] = log
+                try:
+                    failure['failure_lines'] = verify.failure_lines(local(root, log).read_text(errors='replace'))
+                except OSError:
+                    pass
             sha = digest(failure)
             atomic_json(local(root, f'{STATE}/final-verification/{sha}.json'), failure)
+            atomic_json(local(root, f'{STATE}/final-verification/latest.json'),
+                        {'path': f'{STATE}/final-verification/{sha}.json', 'sha256': sha})
             raise
         finally:
             _LEASES.pop(token, None)
@@ -200,6 +262,7 @@ def run(root, review, owner, fresh=False):
         ref = {'path': f'{STATE}/final-verification/{sha}.json', 'sha256': sha}
         atomic_json(local(root, ref['path']), record)
         atomic_json(index, ref)
+        atomic_json(local(root, f'{STATE}/final-verification/latest.json'), ref)
         return {'status': 'EXECUTED PASS', 'receipt': ref, 'scientific': result['evidence']}
 
 

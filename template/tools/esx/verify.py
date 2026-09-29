@@ -7,6 +7,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import signal
 import threading
 from pathlib import Path
@@ -17,6 +18,41 @@ import uuid
 
 from project import (STATE, atomic_json, command, config, digest, environment,
                      file_hash, json_file, local, now, require, source_signature)
+
+
+class RunInterrupted(ValueError):
+    """The suite did not finish: no verdict exists about the candidate."""
+    def __init__(self, message, log, reason):
+        super().__init__(message)
+        self.log, self.reason = log, reason
+
+
+class SourceChanged(ValueError):
+    """Inputs moved under the run, so its outcome describes no single candidate."""
+    def __init__(self, message, log=None):
+        super().__init__(message)
+        self.log = log
+
+
+# pytest ends every completed session with e.g. "==== 3 passed in 0.12s ====".
+PYTEST_SUMMARY = re.compile(r'^=+ .+ in [0-9.]+s\b.*=+\s*$', re.M)
+FAILURE_LINE = re.compile(r'\b(FAILED|ERROR)\b')
+
+
+def failure_lines(text):
+    """Count failure-marked output lines, excluding the verifier's COMMAND echoes."""
+    return sum(1 for line in text.splitlines() if not line.startswith('COMMAND ') and FAILURE_LINE.search(line))
+
+
+def interruption(rc, text):
+    """Name why a non-zero run never reached a verdict, or return None."""
+    if rc == 0:
+        return None
+    if rc < 0:
+        return f'child terminated by signal {-rc}'
+    if 'test session starts' in text and not PYTEST_SUMMARY.search(text):
+        return f'exit {rc} before the pytest summary line'
+    return None
 
 
 def fingerprint(root, suite, commands):
@@ -104,7 +140,7 @@ def _run(root, suite, owner, fresh, override):
     path = local(root, log)
     path.parent.mkdir(parents=True, exist_ok=True)
     started_at, start, rc = now(), time.monotonic(), 0
-    interrupted = None
+    interrupted = timed_out = None
     with path.open('w') as stream:
         for argv in commands:
             stream.write('COMMAND ' + json.dumps(command(argv)) + '\n')
@@ -113,7 +149,7 @@ def _run(root, suite, owner, fresh, override):
                 rc = execute(command(argv), root, stream, cfg.get('command_timeout_seconds', 3600))
             except (OSError, subprocess.TimeoutExpired) as exc:
                 stream.write(str(exc) + '\n')
-                rc = 124
+                rc, timed_out = 124, True
             except (KeyboardInterrupt, InterruptedError) as exc:
                 stream.write('INTERRUPTED ' + repr(exc) + '\n')
                 rc, interrupted = 130, exc
@@ -131,8 +167,20 @@ def _run(root, suite, owner, fresh, override):
     ref = {'path': f'{STATE}/verification/{sha}.json', 'sha256': sha}
     atomic_json(local(root, ref['path']), record)
     if interrupted is not None:
+        interrupted.log = log
         raise interrupted
-    require(rc == 0 and stable, f'verification failed or source changed; inspect {log}')
+    text = path.read_text(errors='replace')
+    # A timeout is the configured verdict on a hung candidate, not an interruption.
+    reason = None if timed_out else interruption(rc, text)
+    if reason:
+        raise RunInterrupted(f'verification interrupted ({reason}); {failure_lines(text)} failure lines '
+                             f'were logged and the suite reached no verdict; inspect {log}', log, reason)
+    if not stable:
+        raise SourceChanged(f'source changed during verification (exit {rc}); inspect {log}', log)
+    if rc != 0:
+        failure = ValueError(f'verification failed (exit {rc}); inspect {log}')
+        failure.log = log
+        raise failure
     atomic_json(index, ref)
     return {'status': 'EXECUTED PASS', 'evidence': ref, 'elapsed_seconds': record['elapsed_seconds']}
 
