@@ -10,6 +10,20 @@ import footer_contract
 from project import STATE, json_file, require
 
 
+def current_seal(packet):
+    """Standalone reviewer section naming the current sealed documentation report.
+
+    Implementer corrections re-seal, so a confirming reviewer may still hold an
+    earlier seal in context. This section is the required footer input.
+    """
+    report = packet['maintenance']['documentation']
+    return ('# Current sealed documentation report (required footer input)\n'
+            'path: ' + report['path'] + '\nsha256: ' + report['sha256'] + '\n'
+            'Set documentation_review.report to exactly ' + json.dumps(report, sort_keys=True) + '. '
+            'Read that exact file now. Do not assume it matches a report you saw in an earlier round: every '
+            'correction re-seals, and a footer citing any other sha256 is rejected when your report is captured.')
+
+
 def build(root, role, issue, design, question=None, packet=None, correction_round=0):
     start = json_file(root, STATE + '/issue-start.json')
     require(start['id'] == issue, 'brief must name the active issue')
@@ -37,6 +51,8 @@ def build(root, role, issue, design, question=None, packet=None, correction_roun
               'bind to the bytes a reviewer will see.\nOriented targets, any of which triggers this:\n'
               + '\n'.join('  ' + target for target in nav['targets']))
     footer.update(issue_id=issue, iteration_timestamp=start['timestamp'], correction_round=correction_round)
+    if role == 'richard':
+        footer['documentation_review']['report'] = dict(packet['maintenance']['documentation'])
     return '\n\n'.join([
         '# ' + role + ': ' + issue, '# Design and acceptance\n' + design,
         '# Question\n' + (question or 'Implement the bounded design and report actual focused checks.'),
@@ -50,6 +66,7 @@ def build(root, role, issue, design, question=None, packet=None, correction_roun
         '# Evidence\nUse tools/esx/project.py signature for candidate_signature. Execute independent checks through '
         'tools/esx/verify.py --suite focused --owner DISPATCHER_AGENT_ID --fresh and cite its returned evidence. '
         'Richard confirms the exact sealed documentation reference in this packet: ' + json.dumps(packet),
+        *([current_seal(packet)] if role == 'richard' else []),
         '# Report\nKeep actual identity, evidence and limitations. Required values cannot be invented.\n```json\n'
         + json.dumps(footer, indent=2) + '\n```']) + '\n'
 

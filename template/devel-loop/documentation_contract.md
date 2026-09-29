@@ -153,7 +153,10 @@ judgments, and supplies this addition to the ordinary hook-captured footer:
 
 Every role footer includes `orientation`. Distinct agents must produce their own
 receipts; the same resumed agent can reuse valid evidence. Each final approving
-reviewer confirms the exact sealed report. Earlier rounds preserve their original
+reviewer confirms the exact sealed report. Every correction re-seals, so a reviewer
+brief names the current sealed report's path and sha256 in a standalone section
+(and pre-fills `documentation_review.report`); an approval citing any other report
+is rejected when the turn is captured, naming the cited and expected hashes. Earlier rounds preserve their original
 navigation as historical evidence. Arch and final approving reviewers must have
 fresh orientation at closure. Stale descriptions anywhere affected by the patch,
 missing coverage and inaccurate dispositions are Must Fix findings. Resolve them
