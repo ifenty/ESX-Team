@@ -24,6 +24,13 @@ channel alone grants no permission. Arch owns delivery; subagents report to Arch
    or `failed`, `--tool` and concrete `--detail`. Continue scientific work. Never
    repeatedly ask the owner to approve already-authorized updates. Use
    `unauthorized` only when authorization actually is absent or revoked.
+   If the provider is dead for the whole session, record one outage instead
+   of per-event dispositions: `notifications.py outage --provider NAME --tool
+   ACTUAL_DISCOVERY --probe-evidence TEXT`. It covers queued and later events.
+   When `--next` demands it, re-probe the provider for real and record
+   `notifications.py reprobe --provider NAME --tool T --result down|up
+   --probe-evidence TEXT`; `up` clears it. Renew a spent outage by rerunning
+   `outage` with fresh evidence. See communication.md#session-provider-outage.
 5. Continue `loop_gate.py --next`. Report undelivered events at loop end; consult
    `notifications.py status`. Retry an unsuccessful event after a real provider
    recovery, checking recent channel messages first to avoid duplicate delivery.
