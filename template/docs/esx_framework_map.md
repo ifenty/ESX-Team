@@ -59,7 +59,7 @@ recorded provider failures remain visible while scientific work proceeds.
 | Shared reservations and coordinator receipts | tools/esx/team_budget.py, team_driver.py, team_accounting.py | tests/test_team_operations.py |
 | Bounded tool groups and hook counters | tools/esx/bounded_command.py, runtime_tool_hook.py | tests/test_team_operations.py, test_execution.py |
 | Successful starts and immutable iteration identity | tools/esx/loop_iteration.py, loop_gate.py | tests/test_parity_integration.py, test_execution.py |
-| Required measured reflection and recurring owners | tools/esx/team_retrospective.py | tests/test_parity_integration.py, test_team_operations.py |
+| Required measured reflection and recurring owners | tools/esx/team_retrospective.py | tests/test_parity_integration.py, test_team_operations.py, test_retro_success.py |
 | Process evidence and recoverable ledger promotion | tools/esx/process_evidence.py, self_improvement.py, ledger_transaction.py, loop_lifecycle.py | tests/test_self_improvement.py, test_process_improvements.py, test_parity_integration.py |
 
 Owning contracts: [bounded operations](../devel-loop/team_operations.md),

@@ -2,13 +2,21 @@
 """Shared retrospective debt, generated measurements and recurrence scheduling.
 
 Legacy accepted records remain visible as schema 1. New records bind schema-2
-measurements to reconciled accounting. No numerical outcome is inferred from
-process metrics. Stop paths preserve debt without extending a spending limit.
+or schema-3 measurements to reconciled accounting; schema 3 adds a
+``confirmations`` array for validated approaches worth repeating, which carry no
+minutes_lost or disposition and never feed recurring-category scheduling. No
+numerical outcome is inferred from process metrics. Stop paths preserve debt
+without extending a spending limit.
 """
 import hashlib
 import json
 from pathlib import Path
 import team_accounting as accounting
+
+SCHEMA_VERSIONS = (2, 3)
+DRAFT_SCHEMA = 3
+ENTRY_FLOOR = 20        # summary/evidence length for any problem or confirmation
+EXPLANATION_FLOOR = 60  # no_problem_reason, or one confirmation's evidence, for empty problems
 
 
 def pending(root):
@@ -90,16 +98,17 @@ def draft(root):
     path = state / 'accounting' / (digest + '.json')
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
-    return {'schema_version': 2, 'id': last['id'], 'iteration': last.get('iteration'),
+    return {'schema_version': DRAFT_SCHEMA, 'id': last['id'], 'iteration': last.get('iteration'),
             'closes_timestamp': last['timestamp'], 'timestamp': accounting.now().split('.')[0] + 'Z',
             'accounting': {'path': str(path.relative_to(root)), 'sha256': digest},
             'measured': accounting.measured(report), 'problems': [], 'solutions': [],
-            'carry_forward': [], 'no_problem_reason': ''}
+            'confirmations': [], 'carry_forward': [], 'no_problem_reason': ''}
 
 
 def validate_measurements(root, record, last):
     errors = []
-    if record.get('schema_version') != 2: return ['new retrospectives require schema_version 2; generate --draft-retro']
+    if record.get('schema_version') not in SCHEMA_VERSIONS:
+        return ['new retrospectives require schema_version 2 or 3; generate --draft-retro']
     try:
         ref = record['accounting']
         path = (Path(root) / ref['path']).resolve()
@@ -113,6 +122,32 @@ def validate_measurements(root, record, last):
         if record.get('measured') != accounting.measured(saved): raise ValueError('measured block differs from accounting receipt')
     except (ValueError, OSError, KeyError, TypeError) as exc: errors.append(str(exc))
     return errors
+
+
+def substantive(value, floor):
+    return isinstance(value, str) and len(value.strip()) >= floor
+
+
+def confirmation_errors(record):
+    """Schema-3 confirmations: category, summary and evidence; no cost, no owner.
+
+    Returns (errors, explains) where explains is true when at least one
+    confirmation's evidence meets the floor an empty problems list must supply.
+    """
+    if record.get('schema_version') != 3:
+        if 'confirmations' in record:
+            return ['confirmations require schema_version 3'], False
+        return [], False
+    confirmations = record.get('confirmations')
+    if not isinstance(confirmations, list):
+        return ['confirmations must be a list'], False
+    errors = []
+    for i, entry in enumerate(confirmations):
+        if not (isinstance(entry, dict) and isinstance(entry.get('category'), str) and entry['category'].strip()
+                and substantive(entry.get('summary'), ENTRY_FLOOR) and substantive(entry.get('evidence'), ENTRY_FLOOR)):
+            errors.append('confirmation %d needs category and concrete summary/evidence' % i)
+    explains = not errors and any(substantive(c.get('evidence'), EXPLANATION_FLOOR) for c in confirmations)
+    return errors, explains
 
 
 def recurring_issues(root, open_ids):
@@ -201,7 +236,11 @@ def accept(root, record):
         else:
             raise ValueError('unknown solution action')
     require(covered == set(range(len(problems))), 'each problem needs a disposition')
-    require(bool(problems) or len(str(record.get('no_problem_reason', ''))) >= 60, 'explain a no-problem result using measured evidence')
+    errors, confirmed = confirmation_errors(record)
+    require(not errors, '; '.join(errors))
+    require(bool(problems) or confirmed or len(str(record.get('no_problem_reason', ''))) >= EXPLANATION_FLOOR,
+            'explain a no-problem result using measured evidence: a no_problem_reason or a confirmation '
+            'whose evidence is at least %d characters' % EXPLANATION_FLOOR)
     errors = recurrence_errors(root, record, opened)
     require(not errors, '; '.join(errors))
     path = Path(root) / accounting.STATE / 'retrospective_history.jsonl'
