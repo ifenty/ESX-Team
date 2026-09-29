@@ -36,6 +36,17 @@ class TeamOperationsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.state = self.root / accounting.STATE
         self.state.mkdir(parents=True)
+        # Permission rules come only from this disposable project, never the host.
+        config = self.root / '.host-config'
+        config.mkdir()
+        patcher = patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(config)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def allow(self, *rules, deny=()):
+        (self.root / '.claude').mkdir(exist_ok=True)
+        (self.root / '.claude/settings.local.json').write_text(json.dumps(
+            {'permissions': {'allow': list(rules), 'deny': list(deny)}}))
 
     def record(self, event, role='bob', start='2026-09-20T10:00:00+00:00', end='2026-09-20T10:10:00.123456+00:00', cost=1):
         path = self.state / 'agent_runtime/sessions' / role / 'turns' / event / 'record.json'
@@ -196,11 +207,28 @@ class TeamOperationsTests(unittest.TestCase):
     def test_tool_hook_preserves_permission_checks_and_quotes_command(self):
         cap = budget.limits()
         budget.reserve(self.root, 'one', 'TEST', cap)
-        value = runtime_tool_hook.handle({'tool_use_id': 't', 'tool_name': 'Bash', 'tool_input': {'command': "printf '%s' '$SECRET'"}}, {'root': str(self.root), 'event_id': 'one', 'folder': str(self.state), 'tool_timeout': 2})
-        out = value['hookSpecificOutput']
+        context = {'root': str(self.root), 'event_id': 'one', 'folder': str(self.state), 'tool_timeout': 2}
+        event = lambda tid, mode='default': {'tool_use_id': tid, 'tool_name': 'Bash', 'permission_mode': mode,
+                                             'tool_input': {'command': "printf '%s' '$SECRET'"}}
+        # Not allowed by settings: left exactly as written for Claude's own check.
+        out = runtime_tool_hook.handle(event('t0'), context)['hookSpecificOutput']
+        self.assertNotIn('permissionDecision', out)
+        self.assertNotIn('updatedInput', out)
+        # Allowed by settings: bounded, and the allow is stated for the ORIGINAL command.
+        self.allow('Bash(printf *)')
+        out = runtime_tool_hook.handle(event('t1'), context)['hookSpecificOutput']
+        self.assertEqual(out['permissionDecision'], 'allow')
+        self.assertIn('bounded_command.py', out['updatedInput']['command'])
+        self.assertIn("printf '\"'\"'%s'\"'\"'", out['updatedInput']['command'])
+        self.assertFalse(out['updatedInput']['run_in_background'])
+        # A settings deny wins; bypass mode is bounded without any grant from ESX.
+        self.allow('Bash(printf *)', deny=['Bash(printf *)'])
+        out = runtime_tool_hook.handle(event('t2'), context)['hookSpecificOutput']
+        self.assertEqual(out['permissionDecision'], 'deny')
+        self.allow()
+        out = runtime_tool_hook.handle(event('t3', 'bypassPermissions'), context)['hookSpecificOutput']
         self.assertNotIn('permissionDecision', out)
         self.assertIn('bounded_command.py', out['updatedInput']['command'])
-        self.assertFalse(out['updatedInput']['run_in_background'])
 
     def test_hung_command_cannot_kill_healthy_parallel_command(self):
 
@@ -284,6 +312,7 @@ class TeamOperationsTests(unittest.TestCase):
         self.assertIn('soft_deadline', scope['overruns'])
 
     def test_copilot_adapter_uses_modified_args_without_granting_permission(self):
+        self.allow('Bash(echo *)')
         budget.reserve(self.root, 'one', 'TEST', budget.limits())
         event = {'toolName': 'bash', 'toolArgs': json.dumps({'command': 'echo ok', 'mode': 'async'}), 'timestamp': 1234}
         context = {'root': str(self.root), 'event_id': 'one', 'folder': str(self.state), 'tool_timeout': 1}

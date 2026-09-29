@@ -280,6 +280,45 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.1: headless roles can run Bash again
+
+Six fixes for failures that two receiving projects (1D_Mixing_Model and
+MITgcm_new_runoff) hit independently on Claude CLI 2.1.285. No integrity check
+was relaxed, and ESX grants no permission that the project's settings do not.
+
+- **Allow rules work for retained roles (ESX-002).** Claude Code checks
+  permissions against the command after the PreToolUse hook rewrites it, so the
+  `bounded_command` wrapper made every allow rule unmatchable and every headless
+  Bash call was denied. `runtime_tool_hook` now judges the original command with
+  the new `permission_match` module against the merged settings (managed, user,
+  project, local). It wraps and explicitly allows only commands those rules
+  already allow; a settings deny is returned as deny; any other command passes
+  through unchanged so Claude's own check applies. The matcher is never looser
+  than Claude's: substitution, subshells, file redirection, heredocs and
+  background jobs never get an ESX allow. Unreadable settings fail closed.
+  Remove any workaround rule that allowed the wrapper command itself.
+- **Denials no longer crash the dispatcher (TEAM-RUNTIME-PERMDENIED-CRASH-001, ESX-001).**
+  The stream parser accepts string-valued `message` events. Any dispatcher error
+  now ends in a recorded failed turn, and each turn record lists its
+  `permission_denials`.
+- **Orphaned turns can be closed honestly.** `agent_runtime.py recover --session S
+  --reason TEXT` records every turn that never wrote `record.json` as failed,
+  including one followed by later completed turns. It refuses a live turn.
+- **The probe witnesses tool permissions.** `probe` adds a real Bash turn through
+  the runtime hook: a harmless project-allowed command must run, and a directory
+  creation the project does not allow must not. Tools-disabled probes could not
+  see ESX-002.
+- **Completion promises are read from `last_assistant_message`
+  (TEAM-LOOP-PROMISE-FLUSH-RACE-001).** The transcript may lag the final message,
+  so it is now only a fallback.
+- **Waiting is not an iteration (TEAM-LOOP-WAIT-BURNS-ITERATION-001).** A Stop
+  while a retained dispatch for the active issue holds its turn lock does not
+  advance the loop, up to three times per iteration. Native Agent-tool subagents
+  are not visible to the kit and still count; Arch should wait in-turn for them.
+- **Missing external inputs block early (TEAM-VERIFY-EXTERNAL-INPUTS-PREFLIGHT-001).**
+  `--next` reports an environment blocker listing missing `external_inputs` before
+  offering issues, and `verify.py` names them instead of raising `Errno 2`.
+
 ## Version 1.5.0: eleven process fixes from a receiving project's retrospectives
 
 Each change answers one measured `TEAM-*` issue filed by 1D_Mixing_Model. No
