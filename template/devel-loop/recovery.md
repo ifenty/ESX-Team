@@ -171,7 +171,9 @@ The final wrapper can reference an unchanged successful scientific execution whe
 its issue, owner, measured source/tests/configuration/toolchain dependencies and
 intact log still agree. It records **reused evidence** and retains the original
 execution receipt. Changed numerical dependencies, invalid logs or unresolved
-correctness findings prevent reuse. No agent edits a stored receipt to refresh it; after a re-run, `loop_lifecycle.py rebind-receipt` re-points a prepared closeout (see verification.md).
+correctness findings prevent reuse. No agent edits a stored receipt to refresh it.
+After a re-run, `loop_lifecycle.py rebind-receipt` re-points a prepared closeout
+at the current receipt ([verification](verification.md)).
 
 ## Process ledgers and budget exhaustion
 
