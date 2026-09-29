@@ -106,7 +106,9 @@ issue and their own correction round. New selections must follow its start time.
                 f'{event}: failed-turn issue identity mismatch')
         if not historical:
             require(timestamp(record.get('ts')) >= timestamp(start.get('timestamp')),
-                    f'{event}: attempt predates this iteration; retain it through --prior')
+                    f'{event}: attempt predates this iteration; retain it through --prior (prepare-done '
+                    f'uses the accepted prior closeout in {STATE}/closed/ automatically) or select it with '
+                    f'"selection_scope": "history"')
         footer = record.get('footer')
         if isinstance(footer, dict):
             require(footer.get('issue_id', start['id']) == start['id'],
@@ -213,7 +215,13 @@ iterations. It supplies no fresh outcome, approval, verification, or delivery cl
         for key in ('scope_decisions', 'review_supersessions', 'deliverables'):
             if key in prior:
                 draft[key] = deepcopy(prior[key])
-    selected += [import_completion(start, records, selection, selection.get('selection_scope') == 'history') for selection in selections]
+    retained = {entry['dispatch_event_id'] for entry in selected}
+    # A pre-iteration event already retained from the prior closeout needs no
+    # second, current-iteration import; the prior carries its exact record.
+    selected += [import_completion(start, records, selection, selection.get('selection_scope') == 'history')
+                 for selection in selections
+                 if not (prior is not None and isinstance(selection, dict)
+                         and selection.get('dispatch_event_id') in retained)]
     by_event = {}
     for entry in selected:
         event = entry['dispatch_event_id']
@@ -235,9 +243,88 @@ iterations. It supplies no fresh outcome, approval, verification, or delivery cl
             missing.append('independent_check')
         if missing:
             pending.append(f'{event}: ' + ', '.join(missing))
+    skeleton = replacement_skeleton(start, records, draft)
+    if skeleton:
+        continuity = draft.setdefault('agent_continuity', {})
+        existing = continuity.setdefault('replacements', [])
+        known = {(r.get('role'), r.get('old_id')) for r in existing if isinstance(r, dict)}
+        for entry in skeleton:
+            if (entry['role'], entry['old_id']) in known:
+                continue
+            existing.append(entry)
+            pending.append(f"agent_continuity.replacements: {entry['role']} {entry['old_id']} -> "
+                           f"{entry['new_id'] or '(choose new_id)'} needs reason and evidence_refs "
+                           f"(or select a later completed continuation of the same agent instead)")
     draft['preparation'] = {'status': 'draft', 'start_timestamp': start['timestamp'],
                             'imported_event_ids': list(by_event), 'pending': pending}
     return draft
+
+
+def replacement_skeleton(start, records, draft):
+    """Draft one replacement disposition per unresolved failed identity.
+
+The dispatch log supplies role, old_id and, when exactly one later completed
+identity of the same role exists in this iteration, new_id. Judgment fields
+(reason, evidence_refs) stay empty, so resolved_dispatch still refuses the draft
+until the closer supplies them. Nothing here resolves a turn by itself.
+"""
+    import workflow_policy
+    issue, iteration = start.get('id'), start.get('timestamp')
+    referenced = {e.get('dispatch_event_id'): role for role, entries in (draft.get('subagents') or {}).items()
+                  for e in entries if isinstance(e, dict)}
+    candidates = [r for r in records if (r.get('issue_id') or (r.get('footer') or {}).get('issue_id')) == issue]
+    skeleton, seen = [], set()
+    for position, event in enumerate(candidates):
+        role, old = event.get('agent_type'), event.get('agent_id')
+        if event.get('status') not in ('failed', 'incomplete') or role not in ROLES or (role, old) in seen:
+            continue
+        if role == 'richard':
+            # Reviews are judged by each reviewer's latest turn for the issue.
+            if any(r.get('agent_type') == role and r.get('agent_id') == old for r in candidates[position + 1:]):
+                continue
+        elif event.get('event_id') not in referenced:
+            continue  # Only closeout-referenced implementation turns are validated.
+        if workflow_policy.resolved_dispatch(event, records, draft):
+            continue
+        later = [r for r in candidates[position + 1:] if r.get('agent_type') == role
+                 and workflow_policy.completed(r) and r.get('agent_id') != old
+                 and workflow_policy.identity(r, 'iteration_timestamp') == iteration]
+        chosen = {r.get('agent_id') for r in later if r.get('event_id') in referenced} or {r.get('agent_id') for r in later}
+        # A same-agent continuation resolves the turn without a replacement.
+        if any(r.get('agent_type') == role and r.get('agent_id') == old and workflow_policy.completed(r)
+               and workflow_policy.identity(r, 'iteration_timestamp') == iteration for r in candidates[position + 1:]):
+            continue
+        seen.add((role, old))
+        skeleton.append({'role': role, 'old_id': old, 'new_id': chosen.pop() if len(chosen) == 1 else None,
+                         'failed_event_id': event.get('event_id'), 'reason': '', 'evidence_refs': []})
+    return skeleton
+
+
+def locate_prior(root, start):
+    """Return the latest accepted earlier closeout of this issue from loop_state/closed/.
+
+Only closeouts recorded in loop_history (accepted), sharing the issue baseline
+and belonging to an earlier iteration qualify. None when there is none.
+"""
+    root = Path(root).resolve()
+    directory = root / STATE / 'closed'
+    if not directory.is_dir():
+        return None
+    accepted = {(row.get('id'), row.get('timestamp'))
+                for row in read_jsonl(local_file(root, f'{STATE}/loop_history.jsonl'))}
+    baseline = (start.get('maintenance') or {}).get('baseline')
+    found = []
+    for path in sorted(directory.glob('issue-done-*.json')):
+        try:
+            record = read_json(local_file(root, str(path.relative_to(root))))
+        except (ValueError, OSError):
+            continue
+        if (isinstance(record, dict) and record.get('id') == start.get('id')
+                and record.get('timestamp') != start.get('timestamp')
+                and (record.get('id'), record.get('timestamp')) in accepted
+                and (record.get('maintenance') or {}).get('baseline') == baseline):
+            found.append((str(record.get('timestamp')), path))
+    return max(found)[1] if found else None
 
 
 def continuation_packet(start, histories, dispatches):
@@ -547,7 +634,9 @@ def main(argv=None):
     prepare = sub.add_parser('prepare-done', help='print an unfinished draft from exact hook completions')
     prepare.add_argument('--start', default=f'{STATE}/issue-start.json')
     prepare.add_argument('--select', required=True, help='JSON array of exact completion identities')
-    prepare.add_argument('--prior', help='previous closeout to preserve earlier completion records')
+    prepare.add_argument('--prior', help='previous closeout to preserve earlier completion records '
+                         '(default: the latest accepted closeout of this issue in loop_state/closed/)')
+    prepare.add_argument('--no-prior', action='store_true', help='do not locate a prior closeout automatically')
     prepare.add_argument('--output', help='create this new relative JSON path; default prints only')
     packet = sub.add_parser('continuation', help='print compact current issue assignments and findings')
     packet.add_argument('--start', default=f'{STATE}/issue-start.json')
@@ -585,9 +674,18 @@ def main(argv=None):
                     read_jsonl(local_file(root, f'{STATE}/loop_history.jsonl')), records)
             else:
                 selected_path = input_file(root, args.select)
-                prior_path = input_file(root, args.prior) if args.prior else None
-                payload = prepare_done(start, records, read_json(selected_path),
-                                       read_json(prior_path) if prior_path else None)
+                prior_path = input_file(root, args.prior) if args.prior else (
+                    None if args.no_prior else locate_prior(root, start))
+                try:
+                    payload = prepare_done(start, records, read_json(selected_path),
+                                           read_json(prior_path) if prior_path else None)
+                except ValueError as exc:
+                    if prior_path and not args.prior:
+                        raise ValueError(f'{exc} (using the automatically located prior closeout '
+                                         f'{prior_path.relative_to(root)}; pass --prior or --no-prior to override)') from exc
+                    raise
+                if prior_path and not args.prior:
+                    payload['preparation']['prior'] = {'path': str(prior_path.relative_to(root)), 'located': 'automatic'}
                 if args.output:
                     write_output(root, args.output, payload,
                                  [start_path, selected_path, *([prior_path] if prior_path else [])])

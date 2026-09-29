@@ -122,7 +122,9 @@ a completed numerical/statistical test. Never relax an oracle merely to close wo
 ## Scope decisions
 
 Classify every material discovery as introduced_regression, dependency,
-separate_existing or unknown. Introduced regressions and acceptance dependencies
+separate_existing, separate_new or unknown. separate_new records a separate issue
+this closeout opened (for example a gap the review found); separate_existing one it
+merely references. Both name its issue_id. Introduced regressions and acceptance dependencies
 must be resolved before completion. A separate defect gets its own reproducer
 and issue; the local fix can finish when its own acceptance remains valid.
 Resolve a relevant unknown with a bounded distinguishing check. Record separate

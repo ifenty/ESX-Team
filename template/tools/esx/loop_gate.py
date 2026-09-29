@@ -155,7 +155,7 @@ class Gate:
             done['closed_at'] = accepted_at
         return done
 
-    def _check_done(self):
+    def _check_done(self, done=None):
         """Validate complete, partial or blocked work without manufacturing PASS.
 
         Completed work requires configured final checks and sealed documentation.
@@ -163,7 +163,8 @@ class Gate:
         claimed agent completion is correlated to its actual hook-captured footer.
         """
         audit.check(self.root, self.ledger_overrides)
-        start, done = self.read('issue-start.json'), self.read('issue-done.json')
+        start = self.read('issue-start.json')
+        done = self.read('issue-done.json') if done is None else done
         require((done.get('id'), done.get('timestamp')) == (start['id'], start['timestamp']),
                 'done must preserve start id and iteration timestamp')
         done['start_validation'] = loop_iteration.start_status(self.root, start)
@@ -236,7 +237,9 @@ class Gate:
         for role in ('bob', 'richard'):
             if agents.get(role):
                 assignment = continuity.get(role, [])
-                require(isinstance(assignment, list) and set(assignment) == agents[role], f'record stable {role} runtime identities')
+                require(isinstance(assignment, list) and set(assignment) == agents[role],
+                        f'record stable {role} runtime identities: agent_continuity.{role} must list exactly the '
+                        f'dispatch_ids already in subagents.{role}, originals first: {sorted(agents[role])}')
                 initial_count = 1 if role == 'bob' else max(1, policy['minimum_reviewers'])
                 for replacement_id in assignment[initial_count:]:
                     require(any(isinstance(r, dict) and r.get('role') == role
@@ -270,6 +273,7 @@ class Gate:
             verification = done.get('verification', {})
             require(verification.get('final_owner') == policy['final_verify_owner'], 'record the assigned final verification owner')
             for suite in required:
+                require(isinstance(verification.get(suite), dict), workflow.verification_reference_message(policy['kind'], suite))
                 evidence = verify.load_evidence(self.root, verification.get(suite))
                 require(evidence['suite'] == suite and evidence['commands'] == self.cfg['verification'][suite],
                         f'{suite}: evidence must run the complete configured suite')
@@ -363,7 +367,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     mode = parser.add_mutually_exclusive_group(required=True)
-    for name in ('next', 'check-start', 'check-done', 'doctor', 'code-sig', 'draft-retro', 'check-retro', 'timings'):
+    for name in ('next', 'check-start', 'check-done', 'closeout-doctor', 'doctor', 'code-sig', 'draft-retro', 'check-retro', 'timings'):
         mode.add_argument('--' + name, action='store_true')
     mode.add_argument('--prepare', metavar='ISSUE')
     parser.add_argument('--kind', choices=workflow.KINDS, default='investigation')
@@ -376,6 +380,7 @@ def main():
     parser.add_argument('--doc', action='append', default=[])
     parser.add_argument('--use')
     parser.add_argument('--diagnosis', type=json.loads, help='agreed diagnosis checkpoint JSON after repeated failed corrections')
+    parser.add_argument('--done', help='--closeout-doctor: draft closeout to inspect instead of loop_state/issue-done.json')
     args = parser.parse_args()
     try:
         gate = Gate(args.root)
@@ -389,6 +394,12 @@ def main():
                 result = team_retrospective.accept(gate.root, gate.read('retrospective.json'))
         elif args.timings:
             result = team_accounting.summary(gate.root)
+        elif args.closeout_doctor:
+            # Read-only dry run: lists every unmet closeout requirement at once.
+            import closeout_doctor
+            result = closeout_doctor.diagnose(gate, args.done)
+            print(json.dumps(result, indent=2))
+            return 0 if result['status'] == 'ready' else 1
         elif args.doctor:
             result = audit.check(gate.root)
         elif args.code_sig:

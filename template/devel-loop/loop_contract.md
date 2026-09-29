@@ -67,7 +67,13 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 6. Prepare the closeout, or retain partial/blocked work with its next step and
    dependency. Complete issue-done.json using the start timestamp. Do not move a
    completed entry out of open_issues.md yourself: the ledger records only accepted work.
-7. Run --check-done. PASS moves a completed entry into closed_issues.md (Status
+7. Run --closeout-doctor (read-only; `--done PATH` inspects a draft) to list every
+   unmet closeout requirement at once. Finalize every field that review_signature
+   covers (listed in the doctor output) before taking the final verification receipt;
+   a later edit makes the receipt stale, and final_verification.py run without --fresh
+   then rebinds the unchanged execution. After a genuine re-run, `loop_lifecycle.py
+   rebind-receipt` re-points the prepared closeout at the new receipt.
+   Then run --check-done. PASS moves a completed entry into closed_issues.md (Status
    Resolved, Date Resolved = acceptance time) under a journaled transaction and saves
    the complete closeout in durable history. A refusal moves nothing. `loop_lifecycle.py
    promote` remains available to stage a curated closed entry through the same gate.
