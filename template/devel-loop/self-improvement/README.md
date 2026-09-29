@@ -68,7 +68,8 @@ Promotion previews complete ledgers, validates them, checks expected source hash
 then applies under a lock with original-byte archives and a durable journal. Repeat
 requests are idempotent. `self_improvement.py recover` completes an interrupted
 transaction; `recover --rollback` restores originals. Concurrent edits are refused.
-Scientific promotion uses `loop_lifecycle.py promote` and the full scientific gate.
+Scientific promotion uses `loop_lifecycle.py promote` and the full scientific gate;
+without it, `loop_gate.py --check-done` performs the move itself on acceptance.
 
 Administrative process ledgers, generated indices and prose/data assessment files
 are excluded from costly candidate/documentation signatures, but their current

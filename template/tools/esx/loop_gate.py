@@ -124,8 +124,32 @@ class Gate:
             require(not errors, '; '.join(errors))
 
     def check_done(self):
-        with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'closeout'):
-            return self._check_done()
+        """Validate the closeout; accepting completed work moves its open entry.
+
+        The ledger move is a consequence of acceptance, never a precondition:
+        the staged move must pass this gate before either ledger is written.
+        """
+        start = self.read('issue-start.json')
+        moved, accepted_at = None, now()
+        if self.ledger_overrides is None:
+            draft = self.read('issue-done.json')
+            if draft.get('outcome') == 'completed' and draft.get('id') == start['id']:
+                import ledger_transaction
+                moved = ledger_transaction.close_on_acceptance(self.root, start['id'], accepted_at,
+                                                               draft.get('summary', ''), start['timestamp'])
+        try:
+            with team_accounting.phase(self.root, start['id'], 'closeout'):
+                done = self._check_done()
+        except BaseException:
+            if moved:
+                import ledger_transaction
+                ledger_transaction.revert(self.root, *moved)
+            raise
+        if done['outcome'] == 'completed':
+            done['open_issues_md_updated'] = True
+        if moved:
+            done['closed_at'] = accepted_at
+        return done
 
     def _check_done(self):
         """Validate complete, partial or blocked work without manufacturing PASS.

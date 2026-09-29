@@ -91,8 +91,8 @@ new correction_round. Existing packet helpers retain the exact completion IDs.
 Use `loop_lifecycle.py prepare-done --packet ... --verification ... --metadata ...`
 for a draft completion from the accepted packet and final_verification result.
 Metadata supplies a substantive summary, tests_status, Git and communication
-dispositions. This does not accept the issue. Preview/apply `loop_lifecycle.py
-promote`, then `loop_gate.py --check-done`. The timestamp stays equal to the start;
+dispositions. This does not accept the issue and leaves its open entry in place.
+Run `loop_gate.py --check-done`; acceptance moves the entry into closed_issues.md. The timestamp stays equal to the start;
 closed_at records completion time separately. A successful content-bound start
 receipt is required. Preserve partial/blocked work and its next action.
 

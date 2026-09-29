@@ -1,7 +1,7 @@
 # Closed issues
 
-Move completed entries here using the original UUID. Status is Resolved or False
-Positive. Preserve the evidence and the scientific bounds of the conclusion.
+`loop_gate.py --check-done` moves a completed entry here, with its original UUID,
+only when it accepts the closeout. Status is Resolved or False Positive. Preserve the evidence and the scientific bounds of the conclusion.
 
 ```markdown
 ## RESOLVED: <Brief title>
