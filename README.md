@@ -280,6 +280,36 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.3: waiting on subagents, and friction from a second project
+
+- **Waiting on an Agent-tool subagent no longer spends an iteration.** A new
+  `SubagentStart` hook (`hooks.py subagent-start`) records each native subagent
+  launch; `SubagentStop` clears it. The Stop hook holds the iteration while this
+  session has one running (same three-wait cap). Markers older than six hours are
+  ignored. **Upgrade step:** `.claude/settings.json` is project-owned and is not
+  changed by upgrades; add the `SubagentStart` entry from the template to enable this.
+- **`{python}` can name the project interpreter.** Optional `"python"` (absolute
+  path) in `esx/project.json`. A failed toolchain probe now names the interpreter
+  actually used, its last stderr line, and the remedy, instead of only the argv.
+- **Reference arguments accept files.** `doc_contract.py` `--baseline`,
+  `--previous`, `--receipt` and `--reuse-args` take inline JSON or a path to a
+  ref file, with a clear error for anything else.
+- **A review that requests changes is not a failed dispatch.** A Richard footer
+  whose only defect is approving while listing `must_fix` items is recorded with
+  `review_outcome: "changes_requested"`, an explanatory error, and exit 0; its
+  record status is unchanged, so no gate can count it as an approval. `richard.md`
+  now states that any required change means `REJECT` with `must_fix`.
+- **Headless shell guidance.** `esx-common` tells roles to create scripts and data
+  with Write, run `python3 file.py`, and avoid heredocs, `> file`, `$(...)` and `&`.
+- **Allow-list additions are not runtime transitions.** Runtime manifests record
+  per-rule digests; a change that only adds `allow` rules is classified
+  `permission_additions` and recorded without `assess-transition`. Removals and
+  ask/deny, mode or hook changes still require assessment. Sessions recorded before
+  1.5.3 lack the digests and need one assessment.
+
+Deferred: suggesting documentation-judgment dependencies in `doc_contract.py draft`
+(needs a design for which dependencies are sound to infer).
+
 ## Version 1.5.2: permission witness and matcher refinements
 
 Two follow-ups to 1.5.1, found while deploying it to MITgcm_new_runoff.
