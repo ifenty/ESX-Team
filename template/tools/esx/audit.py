@@ -98,7 +98,8 @@ def check(root, overrides=None):
                  'issue_candidates.py', 'workflow_records.py', 'final_verification.py',
                  'team_accounting.py', 'team_budget.py', 'team_retrospective.py', 'self_improvement.py',
                  'loop_iteration.py', 'ledger_transaction.py', 'process_evidence.py', 'brief.py',
-                 'footer_contract.py', 'bounded_command.py', 'runtime_tool_hook.py', 'team_driver.py', 'loop_lifecycle.py'):
+                 'footer_contract.py', 'bounded_command.py', 'runtime_tool_hook.py', 'team_driver.py', 'loop_lifecycle.py',
+                 'closeout_doctor.py'):
         require(local(root, 'tools/esx/' + name).is_file(), f'missing framework utility: {name}')
     require(local(root, '.claude/commands/esx-loop.md').is_file(), 'missing /esx-loop command')
     require(local(root, 'devel-loop/autonomous_prompt.md').is_file(), 'missing autonomous loop prompt')

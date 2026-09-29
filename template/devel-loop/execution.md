@@ -121,9 +121,15 @@ python3 tools/esx/workflow_records.py timings --issue PROJECT-001
 
 Import helpers copy the captured fields and leave acceptance judgments pending.
 Fill every listed pending item, remove `preparation.pending` only once addressed,
-and pass the resulting packet through the ordinary gates. Use --prior to retain
-preceding iteration evidence. Preserve failed turns honestly; they remain historical
-and need a qualifying successful recovery before completion. Never edit a footer
+and pass the resulting packet through the ordinary gates. Preceding iteration
+evidence is retained through --prior; when it is omitted, prepare-done uses the
+issue's latest accepted closeout in loop_state/closed/ (same baseline) and names it
+in `preparation.prior` (`--no-prior` opts out). Preserve failed turns honestly; they
+remain historical and need a qualifying successful recovery before completion. For
+each unresolved failed identity the draft carries an `agent_continuity.replacements`
+entry with role, old_id and (when unambiguous) new_id prefilled and `reason` and
+`evidence_refs` empty: the gates refuse it until Arch supplies both. Never resolve a
+failed reviewer by marking it `waived`; that erases a review that did not happen. Never edit a footer
 hash to manufacture an approval. The start timestamp remains the iteration identity.
 
 For a milestone, `workflow_records.py milestone --heading 'Exact heading'` returns

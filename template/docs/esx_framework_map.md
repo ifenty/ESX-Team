@@ -32,6 +32,7 @@ that an unexecuted scientific oracle passes.
 | Mechanism | Owning source | Contract | Kit regression |
 |---|---|---|---|
 | Staged review packets and read-only readiness | tools/esx/workflow_handoff.py | devel-loop/recovery.md | test_workflow_recovery.py, test_execution.py |
+| Read-only closeout dry run and reiteration drafting | tools/esx/closeout_doctor.py, workflow_records.py | devel-loop/loop_contract.md, devel-loop/execution.md | test_closeout_doctor.py |
 | Assessed session transitions and hook diagnostics | tools/esx/runtime_recovery.py | devel-loop/recovery.md | test_runtime.py, test_workflow_recovery.py |
 | Real retained-session instruction refresh | tools/esx/agent_runtime.py | devel-loop/recovery.md | live_runtime_transition.py (opt-in) |
 

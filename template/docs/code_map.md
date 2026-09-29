@@ -42,6 +42,8 @@ A MAP-OK disposition explains which routes remain accurate for the actual patch.
 
 - `tools/esx/workflow_handoff.py::assemble` constructs explicit candidate/report/brief handoffs.
 - `tools/esx/workflow_handoff.py::readiness` collects prerequisite failures without dispatching agents.
+- `tools/esx/closeout_doctor.py::diagnose` lists every unmet closeout requirement, then replays the strict gate read-only.
+- `tools/esx/workflow_records.py::locate_prior` and `replacement_skeleton` draft reiteration continuity without judging it.
 - `tools/esx/runtime_recovery.py::compatibility` checks canonical configuration and assessed transitions.
 - `tools/esx/runtime_recovery.py::hook_doctor` attributes configured hooks without executing them.
 - `tools/esx/doc_contract.py::validate_orientation` diagnoses the changed dependency slice.

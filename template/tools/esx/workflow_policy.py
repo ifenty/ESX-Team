@@ -10,6 +10,22 @@ ROLES = ("bob", "richard", "scout", "prober", "bisector", "auditor")
 RISKS = ("guard_relaxation", "supported_semantics", "fundamental_algorithm",
          "correctness_disagreement")
 SIGNATURE = re.compile(r"[0-9a-f]{64}\Z")
+# separate_new records a separate issue the closeout itself opened (e.g. a gap a
+# reviewer found); separate_existing one it merely references. Both name it.
+SCOPE_CLASSIFICATIONS = ("dependency", "introduced_regression", "separate_existing",
+                         "separate_new", "unknown")
+SEPARATE_CLASSIFICATIONS = ("separate_existing", "separate_new")
+VERIFICATION_KEYS = ("structural", "scientific", "receipt")
+
+
+def verification_reference_message(kind, suite):
+    """Name every verification key a completed closeout needs, not only what is absent."""
+    needed = VERIFICATION_KEYS if kind == "scientific_change" else VERIFICATION_KEYS[:1]
+    return (f"verification reference is required: verification.{suite} is missing or not an evidence reference. "
+            "A completed closeout's verification block names three references separately: "
+            "'structural' (the verify.py --suite structural evidence reference), 'scientific' and "
+            "'receipt' (both returned by final_verification.py run; required for scientific_change). "
+            f"This {kind} closeout needs: " + ", ".join(needed) + ".")
 
 
 def default_workflow(kind, verify_signature, risks=(), numerical_signature=None):
@@ -90,16 +106,16 @@ def validate_scope_decisions(decisions, completed=False):
             errors.append(f"{label} must be an object")
             continue
         kind = decision.get("classification")
-        if kind not in ("dependency", "introduced_regression", "separate_existing", "unknown"):
-            errors.append(f"{label} needs a valid classification")
+        if kind not in SCOPE_CLASSIFICATIONS:
+            errors.append(f"{label} needs a valid classification (one of {', '.join(SCOPE_CLASSIFICATIONS)})")
         if decision.get("status") not in ("resolved", "open", "blocked"):
             errors.append(f"{label} needs status resolved, open, or blocked")
         evidence = decision.get("evidence_refs")
         if (not isinstance(evidence, list) or not evidence
                 or any(not isinstance(e, str) or not e.strip() for e in evidence)):
             errors.append(f"{label} needs evidence_refs")
-        if kind == "separate_existing" and not str(decision.get("issue_id", "")).strip():
-            errors.append(f"{label} needs the separate issue_id")
+        if kind in SEPARATE_CLASSIFICATIONS and not str(decision.get("issue_id", "")).strip():
+            errors.append(f"{label} needs the separate issue_id ({kind})")
         if completed and (kind == "unknown" or
                           kind in ("dependency", "introduced_regression")
                           and decision.get("status") != "resolved"):
@@ -201,7 +217,15 @@ supersede an unavailable reviewer only through an explicit disposition with evid
         if (identity(record, "issue_id") == done.get("id")
                 and (footer.get("candidate_signature") == candidate_signature or not completed(record))
                 and agent_id not in referenced):
-            errors.append(f"{agent_id}: current issue review completion is missing from subagents.richard")
+            message = f"{agent_id}: current issue review completion is missing from subagents.richard"
+            if any(isinstance(e, dict) and e.get("waived") and e.get("dispatch_id") == agent_id
+                   for e in (done.get("subagents") or {}).get("richard", [])):
+                message += (" -- it is marked waived, but waiving is not a valid disposition for a failed or "
+                            "incomplete review: it would erase the record of a review that did not happen. "
+                            "Keep the entry unwaived and resolve it through a later completed continuation of "
+                            "the same reviewer, or an agent_continuity.replacements entry (role, old_id, new_id, "
+                            "reason, evidence_refs) naming the reviewer that replaced it")
+            errors.append(message)
     approved = set()
     superseded = done.get("review_supersessions", [])
     if not isinstance(superseded, list):

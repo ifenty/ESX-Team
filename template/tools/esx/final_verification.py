@@ -43,11 +43,15 @@ def authorize(root, lease):
     require(ready(root, review, owner) == identity, 'final verification lease is stale')
 
 
+# Closeout fields bound into every receipt. Finalize all of them before taking
+# the receipt: a later edit to any one makes check_receipt report it stale.
+REVIEW_SIGNATURE_FIELDS = ('id', 'timestamp', 'workflow', 'workflow_amendment', 'scope_decisions',
+                           'subagents', 'agent_continuity', 'review_supersessions', 'maintenance',
+                           'map_delta', 'candidate', 'diagnosis_checkpoint')
+
+
 def review_signature(review):
-    fields = ('id', 'timestamp', 'workflow', 'workflow_amendment', 'scope_decisions',
-              'subagents', 'agent_continuity', 'review_supersessions', 'maintenance',
-              'map_delta', 'candidate', 'diagnosis_checkpoint')
-    return digest({key: review.get(key) for key in fields})
+    return digest({key: review.get(key) for key in REVIEW_SIGNATURE_FIELDS})
 
 
 def ready(root, review, owner):

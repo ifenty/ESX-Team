@@ -67,7 +67,12 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 6. Prepare the closeout and use loop_lifecycle.py promote to preview/apply an
    accepted issue move with recovery evidence, or retain partial/blocked work with
    its next step and dependency. Complete issue-done.json using the start timestamp.
-7. Run --check-done. PASS saves the complete closeout in durable history.
+7. Run --closeout-doctor (read-only; `--done PATH` inspects a draft) to list every
+   unmet closeout requirement at once, then --check-done. PASS saves the complete
+   closeout in durable history. Finalize every field that review_signature covers
+   (listed in the doctor output) before taking the final verification receipt; a
+   later edit makes the receipt stale, and final_verification.py run without --fresh
+   then rebinds the unchanged execution.
 8. Drain required authorized notifications, retaining provider receipts or concrete
    errors in the outbox. If issue-done communication fields change, rerun --check-done
    to refresh the matching history entry atomically.
