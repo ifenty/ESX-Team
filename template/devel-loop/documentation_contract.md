@@ -24,7 +24,11 @@ documentation and role/skill paths, including ignored and untracked source files
 [the inventory implementation](../tools/esx/doc_inventory.py) for the exact selection.
 
 Arch uses the map to locate the owning stage and reads a bounded dependency slice.
-Record that orientation before writing the implementation brief. Each dispatched
+Record that orientation before writing the implementation brief. When the change
+alters a named default, symbol or documented contract, declare the name with
+`brief.py --sweep-symbol NAME` ([Bounded operations](team_operations.md)): the
+disposition below covers only changed files, so unchanged documents that still
+state the old meaning must be enumerated at brief time. Each dispatched
 role does the same before dependent problem solving, using the baseline reference
 provided in its brief. For example:
 

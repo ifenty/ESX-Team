@@ -81,6 +81,25 @@ python3 tools/esx/verify.py --suite structural --owner arch
 python3 tools/esx/brief.py --role richard --issue UUID --design design.md --question 'Check the independent conservation oracle.' --packet review-packet.json --output richard-brief.md
 ```
 
+Before briefing any change to a named default, symbol or documented contract,
+declare each affected name with a repeatable `--sweep-symbol NAME` so its
+mentions are enumerated rather than recalled:
+
+```sh
+python3 tools/esx/brief.py --role bob --issue UUID --design design.md --sweep-symbol keep_mitgcm_bugs --output bob-brief.md
+```
+
+The brief then carries a "Documents mentioning `NAME`" section listing every
+file in the project tree with a whole-word mention, one `path:line,line,...`
+row per file (Git-tracked and unignored text files; loop state, `.git`, output
+and archive roots, binary files and ESX self-improvement records are excluded).
+At most 50 files and 20 line numbers per file are shown, each with the count
+omitted, so one verbose file cannot hide another. Those files are explicit
+targets whether or not the change touches them: the documentation
+contract's disposition only enumerates changed files, so an unchanged document
+still stating the old meaning is otherwise found only by a reviewer, one
+correction round at a time.
+
 A brief gives the actual iteration identity, budget, own-orientation command,
 acceptance question and role report template. Run the complete structural suite
 before review; current evidence is reused. A retained completion validates nested
