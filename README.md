@@ -280,6 +280,19 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.8: only the owning session drives the loop
+
+Any Claude process started in the project directory loads the project Stop hook.
+A bare `claude --print` run while a loop was active received the continuation
+prompt, advanced several iterations, emitted the completion promise and ended the
+owner's loop mid-issue, queuing a false loop-end announcement (reported by
+MITgcm_new_runoff). `loop_control` now records `owner_session`
+(`CLAUDE_CODE_SESSION_ID`) when a loop starts and re-binds it when an owner
+explicitly continues with `/esx-loop` from a new session; the Stop hook ignores
+Stop events from any other session and logs `FOREIGN_STOP`. Loops started before
+1.5.8 have no owner recorded and keep the previous behaviour until the next
+`/esx-loop` continuation binds one.
+
 ## Version 1.5.7: reports delivered through SubagentHandback are captured
 
 The Claude CLI can require an Agent-tool subagent to return its final report

@@ -141,5 +141,54 @@ class PermissionTransitionTests(Temp):
             self.assertEqual(self.classify(base, after), 'assessment_required', after)
 
 
+class ForeignStopTests(Temp):
+    """A bare `claude --print` in the project dir must not drive the owner's loop."""
+
+    def state(self, owner=True):
+        (self.root / '.claude').mkdir(exist_ok=True)
+        path = self.root / '.claude/esx-loop.local.md'
+        path.write_text('---\nactive: true\niteration: 2\nmax_iterations: 6\ncompletion_promise: "DONE"\n'
+                        + ('owner_session: owner-session-1\n' if owner else '') + '---\nContinue.\n')
+        return path
+
+    def step(self, **event):
+        with redirect_stderr(io.StringIO()):
+            return hook.step(self.root, event)
+
+    def test_foreign_session_cannot_advance_or_end_the_loop(self):
+        path = self.state()
+        before = path.read_text()
+        self.assertEqual(self.step(session_id='someone-else-99', last_assistant_message='x'), {})
+        self.assertEqual(self.step(session_id='someone-else-99', last_assistant_message='<promise>DONE</promise>'), {})
+        self.assertEqual(path.read_text(), before)
+
+    def test_owner_session_still_drives_the_loop(self):
+        path = self.state()
+        result = self.step(session_id='owner-session-1', last_assistant_message='working')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('iteration: 3', path.read_text())
+
+    def test_unowned_legacy_state_keeps_previous_behaviour(self):
+        path = self.state(owner=False)
+        result = self.step(session_id='anyone-1234', last_assistant_message='working')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('iteration: 3', path.read_text())
+
+    def test_start_records_and_run_rebinds_owner(self):
+        import loop_control
+        (self.root / 'devel-loop').mkdir()
+        (self.root / 'devel-loop/autonomous_prompt.md').write_text('Continue.\n')
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'owner-session-1'}), \
+                patch('check_ralph_hook.check', return_value=None):
+            loop_control.start(self.root, 'Continue.\n', 5)
+        text = (self.root / '.claude/esx-loop.local.md').read_text()
+        self.assertIn('owner_session: owner-session-1', text)
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'new-owner-2222'}):
+            self.assertEqual(loop_control.bind_owner(self.root), 'new-owner-2222')
+        text = (self.root / '.claude/esx-loop.local.md').read_text()
+        self.assertIn('owner_session: new-owner-2222', text)
+        self.assertEqual(text.count('owner_session'), 1)
+
+
 if __name__ == '__main__':
     unittest.main()
