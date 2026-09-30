@@ -280,6 +280,16 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.7: reports delivered through SubagentHandback are captured
+
+The Claude CLI can require an Agent-tool subagent to return its final report
+through the `SubagentHandback` tool, which leaves the SubagentStop event's
+`last_assistant_message` empty. ESX then recorded a finished dispatch as
+`incomplete` ("missing ... footer"). `stop_record` now falls back to the
+subagent's own transcript (`agent_transcript_path`): the last `SubagentHandback`
+message, else the last assistant text, and records which source it used in
+`report_source`. A stop with neither still records as incomplete.
+
 ## Version 1.5.6: large assignments no longer break dispatch; role-aware shell guidance
 
 - **Assignments pass by file.** `agent_runtime` passed the whole dispatcher

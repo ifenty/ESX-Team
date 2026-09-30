@@ -229,6 +229,35 @@ class WitnessSelectionTests(unittest.TestCase):
         self.assertIn('only the allowed path was checked', value['note'])
 
 
+class HandbackCaptureTests(unittest.TestCase):
+    """A report delivered via SubagentHandback leaves last_assistant_message empty."""
+
+    def test_footer_is_recovered_from_the_handback_in_the_agent_transcript(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            footer = {'agent': 'bob', 'issue_id': 'X-1', 'correction_round': 0}
+            report = 'Done.\n```json\n' + json.dumps(footer) + '\n```'
+            transcript = root / 'agent.jsonl'
+            rows = [{'type': 'assistant', 'message': {'role': 'assistant', 'content': [
+                        {'type': 'text', 'text': 'earlier text without a footer'}]}},
+                    {'type': 'assistant', 'message': {'role': 'assistant', 'content': [
+                        {'type': 'tool_use', 'name': 'SubagentHandback', 'input': {'message': report}}]}},
+                    {'type': 'user', 'message': {'role': 'user', 'content': [
+                        {'type': 'tool_result', 'content': 'Report delivered to your caller.'}]}}]
+            transcript.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            record = runtime.stop_record(root, {'agent_id': 'a1', 'agent_type': 'bob', 'session_id': 's',
+                                                'last_assistant_message': '', 'agent_transcript_path': str(transcript)})
+            self.assertEqual(record['status'], 'completed', record['error'])
+            self.assertEqual(record['footer'], footer)
+            self.assertEqual(record['report_source'], 'agent_transcript')
+
+    def test_no_transcript_and_no_footer_stays_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            record = runtime.stop_record(Path(temp), {'agent_id': 'a1', 'agent_type': 'bob',
+                                                     'last_assistant_message': ''})
+            self.assertEqual(record['status'], 'incomplete')
+
+
 class PreflightTests(unittest.TestCase):
     def test_missing_external_inputs_are_named(self):
         with tempfile.TemporaryDirectory() as temp:
