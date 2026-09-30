@@ -280,6 +280,23 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.6: large assignments no longer break dispatch; role-aware shell guidance
+
+- **Assignments pass by file.** `agent_runtime` passed the whole dispatcher
+  assignment, including the review context, as one `--append-system-prompt` argv
+  string. Linux caps a single argument at 131,072 bytes (MAX_ARG_STRLEN), and the
+  review context grows with each round (it carries prior dispatches' footers), so
+  later Richard rounds failed at launch with E2BIG. The assignment is now written
+  to `turn/assignment.txt` and passed with `--append-system-prompt-file`. Prompts,
+  transition notes and peer messages already travel on stdin; the remaining argv
+  strings are small fixed JSON. Reported by MITgcm_new_runoff.
+- **Shell guidance matches each role's tools.** 1.5.3 told every role to create
+  scripts with Write, but Richard, Scout, Auditor and Bisector have no Write by
+  design. `esx-common` now tells read-only roles to run witness code inline with a
+  multi-line `python3 -c "..."` and write scratch artifacts from that program under
+  `devel-loop/loop_state/scratch/<agent id>/`, and adds shell variables and
+  `NAME=value` prefixes to the shapes to avoid. Reviewer tools are unchanged.
+
 ## Version 1.5.5: a cost overshoot is data, not a failed turn
 
 `agent_runtime` recorded a completed role turn as `failed` ("provider exceeded

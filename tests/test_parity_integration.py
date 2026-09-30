@@ -167,7 +167,7 @@ sys.stdin.read()
 root = pathlib.Path.cwd()
 sys.path.insert(0, str(root/'tools/esx'))
 import doc_contract, footer_contract, project, verify
-assignment = json.loads(args[args.index('--append-system-prompt')+1].split('ESX dispatcher assignment: ',1)[1].split('\\n',1)[0])
+assignment = json.loads(pathlib.Path(args[args.index('--append-system-prompt-file')+1]).read_text().split('ESX dispatcher assignment: ',1)[1].split('\\n',1)[0])
 sid = assignment['agent_id']
 packet = json.loads((root/project.STATE/'review-fixture.json').read_text())
 with contextlib.redirect_stderr(io.StringIO()):

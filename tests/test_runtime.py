@@ -84,7 +84,7 @@ class AgentRuntimeTests(unittest.TestCase):
         event = self.start()
         invocation = json.loads((self.root / event['invocation']['path']).read_text())
         argv = invocation['argv']
-        context = argv[argv.index('--append-system-prompt') + 1]
+        context = Path(argv[argv.index('--append-system-prompt-file') + 1]).read_text()
         assignment = json.loads(context.split('ESX dispatcher assignment: ', 1)[1].split('\n', 1)[0])
         self.assertEqual(assignment['agent_id'], event['agent_id'])
         self.assertEqual(assignment['issue_id'], 'TEST-001')
@@ -108,6 +108,18 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertNotIn("--allowedTools", command)
         self.assertIn("--strict-mcp-config", command)
         self.assertEqual(json.loads(command[command.index("--mcp-config") + 1]), {"mcpServers": {}})
+
+    def test_assignment_larger_than_one_argv_string_is_passed_by_file(self):
+        # Linux MAX_ARG_STRLEN is 131,072 bytes per argument; a grown review
+        # context once made every dispatch fail with E2BIG.
+        big = {'id': 'TEST-001', 'subagents': {'bob': ['x' * 200000]}}
+        with patch.object(runtime, 'review_context', return_value=big):
+            event = self.run_turn(role='bob', issue='TEST-001', review_packet={'id': 'TEST-001'}, payload={})
+        self.assertEqual(event['status'], 'completed', event['error'])
+        argv = json.loads((self.root / event['invocation']['path']).read_text())['argv']
+        self.assertLess(max(len(a.encode()) for a in argv), 131072)
+        text = Path(argv[argv.index('--append-system-prompt-file') + 1]).read_text()
+        self.assertIn('x' * 200000, text)
 
     def test_provider_overshoot_is_recorded_not_a_failed_turn(self):
         # Reservations are nominal: a long-lived session's later turns cost more than
