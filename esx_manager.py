@@ -113,6 +113,31 @@ def merge_special(name, existing, incoming):
         return json_bytes(old)
     raise ValueError(f"collision: existing file blocks fresh install: {name}")
 
+def esx_hook_key(hook):
+    """Identify an ESX hook by script and subcommand, e.g. ('hooks.py', 'subagent-start')."""
+    command = hook.get("command", "") if isinstance(hook, dict) else ""
+    for script in ("tools/esx/hooks.py", "tools/esx/ralph_stop.py"):
+        if script in command:
+            rest = command.split(script, 1)[1].replace('"', " ").split()
+            return (script, rest[0] if rest else "")
+    return None
+
+def add_missing_esx_hooks(existing, incoming):
+    """Upgrade-time merge for project-owned settings: add ESX hook entries that are
+    entirely absent; never modify or remove anything already present."""
+    old, new = json.loads(existing), json.loads(incoming)
+    if not isinstance(old, dict): raise ValueError(".claude/settings.json must contain a JSON object")
+    present = {esx_hook_key(h) for groups in (old.get("hooks") or {}).values() for g in groups
+               for h in (g.get("hooks") or [])} - {None}
+    added = []
+    for event, groups in (new.get("hooks") or {}).items():
+        for group in groups:
+            keys = {esx_hook_key(h) for h in group.get("hooks", [])} - {None}
+            if keys and not keys & present:
+                old.setdefault("hooks", {}).setdefault(event, []).append(group)
+                present |= keys; added.append(event)
+    return (json_bytes(old), added) if added else (existing, [])
+
 def object_path(project, digest):
     path = Path(project) / LOCAL / "objects" / digest
     if path.is_symlink(): raise ValueError(f"baseline object cannot be a symlink: {digest}")
@@ -199,6 +224,15 @@ def upgrade_plan(project, master=MASTER):
     for name in sorted(set(old_files) | set(new_files)):
         target, old = inside(project, name), old_files.get(name); current = target.read_bytes() if target.exists() else None
         owner = ownership(name)
+        if (name == ".claude/settings.json" and current is not None and name in new_files):
+            try:
+                merged, added = add_missing_esx_hooks(current, new_files[name])
+            except ValueError as exc:
+                conflicts.append({"path": name, "reason": f"cannot add new ESX hooks: {exc}"}); continue
+            if added:
+                rows.append({"path": name, "ownership": owner, "action": "add-esx-hooks", "added_hooks": added,
+                             "before_sha256": sha(current), "result_sha256": sha(merged),
+                             "master_sha256": sha(new_files[name]), "content": merged}); continue
         if owner == "project" and not (old is None and current is None and name in new_files):
             rows.append({"path": name, "ownership": owner, "action": "preserve",
                          "before_sha256": sha(current) if current is not None else None,

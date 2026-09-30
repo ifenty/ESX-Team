@@ -280,14 +280,21 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.4: upgrades add new ESX hooks to project settings
+
+`.claude/settings.json` stays project-owned, but an upgrade now adds any ESX hook
+entry (`tools/esx/hooks.py` or `ralph_stop.py` subcommand) that the project's
+settings lack entirely, shown in the plan as `add-esx-hooks` with the events
+added. Existing entries, permissions and all other settings are never modified or
+removed. This delivers 1.5.3's `SubagentStart` hook without a manual edit.
+
 ## Version 1.5.3: waiting on subagents, and friction from a second project
 
 - **Waiting on an Agent-tool subagent no longer spends an iteration.** A new
   `SubagentStart` hook (`hooks.py subagent-start`) records each native subagent
   launch; `SubagentStop` clears it. The Stop hook holds the iteration while this
   session has one running (same three-wait cap). Markers older than six hours are
-  ignored. **Upgrade step:** `.claude/settings.json` is project-owned and is not
-  changed by upgrades; add the `SubagentStart` entry from the template to enable this.
+  ignored. Upgrading to 1.5.4 or later adds the `SubagentStart` settings entry.
 - **`{python}` can name the project interpreter.** Optional `"python"` (absolute
   path) in `esx/project.json`. A failed toolchain probe now names the interpreter
   actually used, its last stderr line, and the remedy, instead of only the argv.
