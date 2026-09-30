@@ -280,6 +280,19 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.5.5: a cost overshoot is data, not a failed turn
+
+`agent_runtime` recorded a completed role turn as `failed` ("provider exceeded
+reservation; further launches are blocked") whenever its reported cost exceeded
+the turn reservation, and `team_driver` stopped the outer run for the same reason.
+Both contradicted `team_budget`'s contract that allocations are nominal
+expectations, not caps, and nothing was actually blocked. Because a retained
+session's per-turn cost grows with its context, a fixed `turn_usd` guaranteed
+that late turns of long-lived Bob sessions "failed". The overshoot is now
+recorded as `provider_overshoot` in the turn record (and still as a dated budget
+observation); turn status comes only from the actual result and footer.
+Reported by MITgcm_new_runoff.
+
 ## Version 1.5.4: upgrades add new ESX hooks to project settings
 
 `.claude/settings.json` stays project-owned, but an upgrade now adds any ESX hook

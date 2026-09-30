@@ -109,6 +109,18 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIn("--strict-mcp-config", command)
         self.assertEqual(json.loads(command[command.index("--mcp-config") + 1]), {"mcpServers": {}})
 
+    def test_provider_overshoot_is_recorded_not_a_failed_turn(self):
+        # Reservations are nominal: a long-lived session's later turns cost more than
+        # turn_usd, and that must not turn a completed report into a failure.
+        real_settle = runtime.team_budget.settle
+        def over(root, event_id, cost):
+            return dict(real_settle(root, event_id, cost), provider_overshoot=True)
+        with patch.object(runtime.team_budget, 'settle', over):
+            event = self.start()
+        self.assertEqual(event['status'], 'completed')
+        self.assertIsNone(event['error'])
+        self.assertTrue(event['provider_overshoot'])
+
     def test_failed_and_incomplete_turns_never_become_completed(self):
         modes = {"no-footer": "incomplete", "truncated": "incomplete",
                  "provider": "failed", "crash": "failed", "identity": "failed",
