@@ -280,6 +280,38 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.2: pause, repeated stops, superseded figures
+
+Three faults found by running 1.6.1 on two projects.
+
+- **Pause.** A coordinator that reached its provider usage limit could not stop:
+  the Stop hook returned the continuation prompt and counted an iteration each
+  time, and one loop lost half its budget that way. `loop_control.py pause
+  --reason TEXT [--minutes N | --until ISO]` (`/esx-loop pause`) holds the loop.
+  While it is paused the Stop hook lets every turn end and changes nothing: no
+  iteration, no wait count, no heartbeat, no ending. `/esx-loop` or
+  `loop_control.py resume` lifts it; a time only makes the hold lift by itself. A
+  pending cancel is kept, and `abort` still works at once. A retained turn the
+  provider refuses for a usage limit is recorded with `provider_limit` (and the
+  reset time), read from the stream, and `--next` prints `LIMIT:` with the pause
+  command to run.
+- **Repeated stops.** A native agent can stop twice at the end of a turn: with its
+  report, and again when background work it started finishes. The second stop used
+  to count as a newer completion, so a final packet built from the first was
+  refused after the whole verification suite had run. A stop that repeats the
+  agent's previous footer is now recorded with `duplicate_of`, kept in the log,
+  listed by `selections` as `duplicate`, refused if selected, and ignored wherever
+  the latest completion counts.
+- **Superseded figures.** A change that re-measures a result leaves the old number
+  in passages it does not edit; three issues in a row were sent back for that.
+  The implementer keeps `devel-loop/loop_state/figures-ISSUE.tsv`
+  (`old<TAB>new<TAB>note`), and `doc_contract.py stale --issue ISSUE` lists every
+  inventoried line that still contains one, matching whole tokens with or without
+  thousands separators. `brief.py` includes the list (`--sweep-figure` adds
+  figures), and `seal` reports how many lines remain. The count is advisory.
+
+Also: `self_improvement.py followup --evidence` documents its `PATH#SHA256` form.
+
 ## Version 1.6.1: a usable time estimate; a worked orientation example
 
 Found by the 1.6.0 acceptance run on MITgcm_new_runoff. The remaining-time
