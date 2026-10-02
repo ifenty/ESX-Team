@@ -420,28 +420,45 @@ def prefill(root, row, base_files, current, supplied=None, issue=None):
         'references': [], 'deployment': provenance}
 
 
-def same_judgment(sealed, measured):
+PROSE_OR_CONFIG = ('.md', '.rst', '.tex', '.txt', '.json', '.yaml', '.yml', '.toml', '.cfg', '.ini', '')
+
+
+def file_bound(row):
+    """Whether an undeclared judgment may be bound to its own file instead of the whole inventory.
+
+    Only a judgment that describes a code or test unit as it now is (`updated`,
+    `removed`) qualifies. Two kinds of judgment are about OTHER files and never
+    qualify: `reviewed_unchanged`, whose whole claim is that an existing
+    description still fits whatever else changed, and any judgment on a document,
+    map or configuration file, whose text describes code elsewhere. Carrying
+    those forward unexamined is exactly how a document goes stale.
+    """
+    suffix = Path(row.get('target', '').partition('::')[0]).suffix.lower()
+    return row.get('action') in ('updated', 'removed') and suffix not in PROSE_OR_CONFIG
+
+
+def same_judgment(sealed, measured, row=None):
     """Whether a sealed judgment's own inputs are unchanged in the current tree.
 
     A judgment with declared dependencies is bound to its target, those
-    dependencies and its cited references, as before. One without them used to be
-    bound to the whole inventory. Between two rounds of one issue something always
-    changes somewhere, so that binding reused nothing in practice (0 of 136-259
-    judgments per round in measured use) and pushed coordinators to refill plans
-    by script with no check at all. It is now bound to the whole FILE that holds
-    the target (so an edit to a sibling definition still forces a fresh look at
-    everything in that file) and to every reference it cites. A change in another
-    file that makes this target's text wrong must be declared as a dependency;
-    the reviewer's stale-claim sweep covers the rest. A report sealed before the
-    file state was measured keeps the whole-inventory rule.
+    dependencies and its cited references. One without them is bound to the whole
+    inventory, with one exception: an `updated` or `removed` judgment on a code or
+    test unit (see file_bound) is bound to the whole FILE that holds the target
+    and to every reference it cites. Between two rounds of one issue something
+    always changes somewhere, so whole-inventory binding reused nothing for those
+    (0 of 136-259 judgments per round in measured use) and pushed coordinators to
+    refill plans by script with no check at all. An edit to a sibling definition
+    in the same file still forces a fresh look at everything in that file. A
+    report sealed before the file state was measured keeps the whole-inventory
+    rule for every judgment.
     """
     if not isinstance(sealed, dict) or not isinstance(measured, dict):
         return False
     without_file = lambda value: {k: v for k, v in value.items() if k != 'file_sha256'}
     if sealed.get('dependency_inventory') is None:  # declared dependencies
         return without_file(sealed) == without_file(measured)
-    if 'file_sha256' not in sealed:  # sealed before the file state was measured
-        return sealed == without_file(measured)
+    if 'file_sha256' not in sealed or row is None or not file_bound(row):
+        return without_file(sealed) == without_file(measured)
     return all(sealed.get(key) == measured.get(key)
                for key in ('target', 'references', 'dependency_contexts', 'file_sha256'))
 
@@ -478,7 +495,7 @@ def draft(root, issue, base_ref, previous_ref=None):
             if prior and prior.get('change') == row['change'] and prior.get('judgment_inputs'):
                 try:
                     measured = judgment_inputs(root, prior, current)
-                    valid = same_judgment(prior['judgment_inputs'], measured)
+                    valid = same_judgment(prior['judgment_inputs'], measured, prior)
                 except (ValueError, OSError, KeyError):
                     valid = False
                 if valid:
@@ -597,7 +614,7 @@ def validate_report(root, report, issue, base_ref, current=None):
             require(previous.get('baseline') == base_ref and 'references' in previous,
                     f'{target}: invalid documentation reuse source')
             found = [r for r in previous.get('dispositions', []) if r.get('target') == target]
-            require(len(found) == 1 and same_judgment(found[0].get('judgment_inputs'), measured),
+            require(len(found) == 1 and same_judgment(found[0].get('judgment_inputs'), measured, found[0]),
                     f'{target}: reused judgment has changed target, dependencies or references')
             require(all(row.get(k) == found[0].get(k) for k in
                         ('action', 'change', 'reason', 'references', 'dependencies')),

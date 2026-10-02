@@ -643,34 +643,90 @@ class BaselineTests(DeploymentFixture):
         self.assertEqual(rows['tests/new_oracle.py::<module>']['action'], '')
         self.assertEqual(draft['map_delta']['status'], '')
 
-    def test_undeclared_dependencies_are_bound_to_the_target_file_and_cited_references(self):
-        """A change in another file keeps the judgment; one in the same file does not."""
+    MAP_OK = {'status': 'MAP-OK', 'references': ['docs/code_map.md#pipeline'],
+              'reason': 'The mapped source and its scientific acceptance routes remain accurate for this local scalar edit.'}
+
+    def updated_plan(self, baseline, doc_dependencies=()):
+        """A code unit and a document both edited, each with a real documentation change."""
+        self.model.write_text(self.model.read_text().replace(
+            '"""Scale a scalar tracer by the configured factor."""\n    return FACTOR*x',
+            '"""Scale a scalar tracer by twice the configured factor."""\n    return FACTOR*x*2'))
+        contract = self.root / 'docs/model_contract.md'
+        contract.write_text(contract.read_text() + '\nThe scalar update doubles the configured factor.\n')
+        plan = dc.draft(self.root, self.issue, baseline)
+        for row in plan['dispositions']:
+            code = row['target'] == 'src/model.py::step'
+            document = row['target'].startswith('docs/model_contract.md')
+            row.update(action='updated' if code or document else 'reviewed_unchanged', references=[row['target']],
+                       reason='The description states the doubled scalar factor that the changed update now applies.')
+            if document and doc_dependencies:
+                row['dependencies'] = list(doc_dependencies)
+        plan['map_delta'] = dict(self.MAP_OK)
+        return plan
+
+    def test_updated_code_judgment_is_bound_to_its_own_file_and_cited_references(self):
+        """A change in another file keeps it; a sibling edit in the same file does not."""
         base = dc.baseline(self.root, self.issue)
-        report = dc.seal(self.root, self.changed_plan(base, dependencies=False))
+        report = dc.seal(self.root, self.updated_plan(base))
         self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
         draft = dc.draft(self.root, self.issue, base, report)
         rows = {r['target']: r for r in draft['dispositions']}
         self.assertEqual(rows['src/model.py::step']['reused_from'], report)
-        self.assertEqual(rows['tests/new_oracle.py::<module>']['action'], '')
-        self.assertEqual(draft['reused'], sum(bool(r.get('reused_from')) for r in draft['dispositions']))
-        self.assertGreaterEqual(draft['reused'], 1)
-        # The carried judgments seal again against the new candidate.
-        rows['tests/new_oracle.py::<module>'].update(
-            action='reviewed_unchanged', references=['tests/new_oracle.py::<module>'],
-            reason='The added oracle module is described accurately by its own module documentation string.')
-        draft['map_delta'] = {'status': 'MAP-OK', 'references': ['docs/code_map.md#pipeline'],
-                              'reason': 'The mapped source and its scientific acceptance routes remain accurate for this local scalar edit.'}
+        self.assertEqual(draft['reused'], 1)
+        # The carried judgment seals again against the new candidate once the rest is judged.
+        for row in draft['dispositions']:
+            if not row.get('reused_from'):
+                document = row['target'].startswith('docs/model_contract.md')
+                row.update(action='updated' if document else 'reviewed_unchanged', references=[row['target']],
+                           reason='The description states the doubled scalar factor that the changed update now applies.')
+        draft['map_delta'] = dict(self.MAP_OK)
         dc.seal(self.root, draft)
-        # An edit to a sibling definition in the same file forces a fresh look at the whole file.
         self.model.write_text(self.model.read_text().replace('return step(x)', 'return step(x)+1'))
         again = dc.draft(self.root, self.issue, base, report)
-        self.assertTrue(all(row['action'] == '' for row in again['dispositions']
-                            if row['target'].startswith('src/model.py')))
+        self.assertEqual(again['reused'], 0)
+
+    def test_judgments_about_other_files_never_carry_forward_undeclared(self):
+        """reviewed_unchanged and document judgments keep the whole-inventory rule."""
+        base = dc.baseline(self.root, self.issue)
+        plan = self.updated_plan(base)
+        targets = {r['target']: r['action'] for r in plan['dispositions']}
+        self.assertIn('docs/model_contract.md::<module>', targets)
+        report = dc.seal(self.root, plan)
+        self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
+        rows = {r['target']: r for r in dc.draft(self.root, self.issue, base, report)['dispositions']}
+        self.assertEqual(rows['docs/model_contract.md::<module>']['action'], '')
+        for target, action in targets.items():
+            if action == 'reviewed_unchanged':
+                self.assertEqual(rows[target]['action'], '', target)
+        self.assertFalse(dc.file_bound({'target': 'src/model.py::step', 'action': 'reviewed_unchanged'}))
+        self.assertFalse(dc.file_bound({'target': 'docs/model_contract.md::<module>', 'action': 'updated'}))
+        self.assertFalse(dc.file_bound({'target': 'esx/project.json::<module>', 'action': 'updated'}))
+        self.assertTrue(dc.file_bound({'target': 'src/model.py::step', 'action': 'updated'}))
+        self.assertTrue(dc.file_bound({'target': 'src/solver.F90::<module>', 'action': 'removed'}))
+
+    def test_reviewed_unchanged_without_dependencies_is_blanked_by_any_change_elsewhere(self):
+        base = dc.baseline(self.root, self.issue)
+        plan = self.changed_plan(base, dependencies=False)
+        self.assertTrue(all(row['action'] == 'reviewed_unchanged' for row in plan['dispositions']))
+        report = dc.seal(self.root, plan)
+        self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
+        draft = dc.draft(self.root, self.issue, base, report)
+        self.assertTrue(all(row['action'] == '' for row in draft['dispositions']))
+        self.assertEqual(draft['reused'], 0)
+
+    def test_document_judgment_with_a_declared_code_dependency_is_reused_while_that_code_is_unchanged(self):
+        base = dc.baseline(self.root, self.issue)
+        report = dc.seal(self.root, self.updated_plan(base, doc_dependencies=['src/model.py::step']))
+        self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
+        rows = {r['target']: r for r in dc.draft(self.root, self.issue, base, report)['dispositions']}
+        self.assertEqual(rows['docs/model_contract.md::<module>']['reused_from'], report)
+        self.model.write_text(self.model.read_text().replace('return FACTOR*x*2', 'return FACTOR*x*3'))
+        rows = {r['target']: r for r in dc.draft(self.root, self.issue, base, report)['dispositions']}
+        self.assertEqual(rows['docs/model_contract.md::<module>']['action'], '')
 
     def test_report_sealed_before_file_state_was_measured_keeps_the_whole_inventory_rule(self):
         base = dc.baseline(self.root, self.issue)
-        plan = self.changed_plan(base, dependencies=False)
-        ref = dc.seal(self.root, plan)
+        ref = dc.seal(self.root, self.updated_plan(base))
         old = dc.load(self.root, ref, 'documentation', self.issue)
         for row in old['dispositions']:
             row['judgment_inputs'].pop('file_sha256')
@@ -678,7 +734,7 @@ class BaselineTests(DeploymentFixture):
         dc.validate_report(self.root, dc.load(self.root, legacy, 'documentation', self.issue), self.issue, base)
         self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
         draft = dc.draft(self.root, self.issue, base, legacy)
-        self.assertTrue(all(row['action'] == '' for row in draft['dispositions']))
+        self.assertEqual(draft['reused'], 0)
 
     def test_module_context_and_referenced_dependency_invalidate_reuse(self):
         for change in [('FACTOR = 1', 'FACTOR = 3'), ('return step(x)', 'return step(x)+1')]:

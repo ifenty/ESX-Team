@@ -137,7 +137,22 @@ If another edit is needed, generate a fresh draft with `--previous` set to the
 sealed report JSON reference. Automatic reuse requires unchanged target, enclosing
 module context, cited prose and declared `dependencies` references. Dependencies
 are exact `path::symbol` or `path#heading` entries. Without explicit dependencies,
-the judgment conservatively depends on the complete inventory. Review changes
+what a judgment depends on is decided by what it claims:
+
+- An `updated` or `removed` judgment on a code or test unit describes that unit as
+  it now is. It carries forward while the whole file holding the unit and every
+  reference it cites are unchanged. An edit to a sibling definition in the same
+  file blanks it.
+- A `reviewed_unchanged` judgment claims an existing description still fits
+  everything else that changed. It never carries forward undeclared: any change
+  in the inventory blanks it.
+- A judgment on a document, the code map or a configuration file describes code
+  elsewhere. It never carries forward undeclared either. Declare the code it
+  describes as `dependencies` and it is reused while that code is unchanged.
+
+The draft reports how many judgments it `reused`. The implementer drafts and
+seals the plan from the live source and gives each blank judgment its own reason;
+do not refill a plan by copying reasons from an earlier one. Review changes
 and seal again; a map judgment requires unchanged inventory for automatic reuse. Never update only the hash
 in a stale report. Code and documentation edits both invalidate final approval.
 
