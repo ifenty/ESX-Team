@@ -280,6 +280,73 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.0: a loop the owner can stop, watch and trust
+
+Fixes and additions from two projects' measured use (1D_Mixing_Model and
+MITgcm_new_runoff), implemented and cross-reviewed by their two coordinators.
+
+**Loop control**
+
+- `/esx-loop cancel` stops the next iteration from starting. It never stops work
+  in progress: the active iteration runs through review, closeout and its
+  retrospective, with the Stop hook, gates and notifications all still working,
+  and the loop ends where a new iteration would have begun. `/esx-loop abort`
+  is the explicit immediate stop. Continuing the loop withdraws a pending cancel.
+- While a background Agent-tool subagent runs, the Stop hook lets the turn end
+  with a one-line status. It no longer blocks, which the CLI displayed as "Stop
+  hook error", and it consumes no iteration. A retained CLI turn still holds the
+  session; `agent_runtime.py wait` blocks on it inside one tool call.
+- `--next` asks for `--check-start` while an active iteration has no start
+  receipt, and a role launched without one is warned. A check skipped until
+  after the work began is taken with `--check-start --late-reason`, which marks
+  the receipt late.
+- `communication.heartbeat_minutes` (60 in the template) sends one sentence per
+  interval: iteration, status, issue and phase, estimated time remaining and open
+  issues. It replaces the post per iteration. `loop_control.py status --line`,
+  `loop_control.py wake` and the `STATUS:` line of `--next` give the owner's
+  screen status; the coordinator relays it at least every
+  `communication.screen_status_minutes`.
+- More than 6 loop advances within 120 s are withheld and logged as an anomaly.
+  A queued loop-end notice carries the reason and counts of the ending it
+  announces, and is superseded if the loop goes on.
+
+**Closeout and packets** (from MITgcm_new_runoff)
+
+- `loop_lifecycle.py rebind-receipt` binds the passing final execution to the
+  finished closeout without running the suite again.
+- Reference arguments accept a file path everywhere. A recovered orphan turn and
+  a same-round continuation can be selected. A stale candidate names the paths
+  that changed. The closeout draft and the doctor state the expected shape of
+  every judged field.
+
+**Review flow**
+
+- Retrospective solutions gain the action `fixed` for a problem resolved inside
+  the issue or already released; the draft lists the whole vocabulary.
+- `doc_contract.py draft --previous` carries forward an `updated` or `removed`
+  judgment on a code or test unit while its own file and cited references are
+  unchanged. `reviewed_unchanged` judgments and judgments on documents, maps and
+  configuration never carry forward without declared dependencies.
+- `--next` announces the diagnosis checkpoint after two rejected rounds in a row.
+  Briefs state working rules for each role and how a role finds its runtime id.
+
+**Runtime**
+
+- A turn's wall-clock limit depends on the role (3600 s for bob) and can be set
+  per project; the assignment carries the deadline.
+- A CLI update within one minor release needs one passing probe, not an
+  assessment for each retained session.
+- With `"python"` pinned in `esx/project.json`, verification evidence is the same
+  from any shell: it describes the pinned interpreter, not the activated
+  environment of whoever ran the tool.
+- A native subagent is told its own runtime id at launch; `hooks.py whoami`
+  returns it.
+
+Upgrade notes: the Stop hook, `--next` output and the cancel command change
+behaviour as described. To get the heartbeat, add `"heartbeat_minutes": 60` and
+`"screen_status_minutes": 15` to `communication` in `esx/project.json`; without
+them a project keeps the post per iteration. Run a live probe after upgrading.
+
 ## Version 1.5.8: only the owning session drives the loop
 
 Any Claude process started in the project directory loads the project Stop hook.
