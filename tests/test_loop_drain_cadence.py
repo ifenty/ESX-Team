@@ -169,7 +169,7 @@ class AdvanceRateTests(LoopFixture):
         self.run_loop(limit=200)
         moment = [1000.0]
         with patch.object(ralph_stop, 'clock', lambda: moment[0]):
-            for _ in range(ralph_stop.MAX_ADVANCES_PER_MINUTE):
+            for _ in range(ralph_stop.MAX_ADVANCES):
                 self.assertEqual(self.stop()['decision'], 'block')
                 moment[0] += 1
             before = self.state_text()
@@ -178,7 +178,7 @@ class AdvanceRateTests(LoopFixture):
             self.assertIn('paused', result['systemMessage'])
             self.assertEqual(self.state_text(), before)
             self.assertIn('ANOMALY', (self.root / '.claude/esx-loop-exit.log').read_text())
-            moment[0] += 61
+            moment[0] += ralph_stop.ADVANCE_WINDOW_SECONDS + 1
             self.assertEqual(self.stop()['decision'], 'block')
 
 
@@ -265,6 +265,20 @@ class HeartbeatTests(LoopFixture):
         with contextlib.redirect_stderr(io.StringIO()):
             loop_control.cancel(self.root, 'now', now=True)
         self.assertIn('no active loop', loop_control.status_line(self.root))
+
+
+class EstimateTests(LoopFixture):
+    def test_remaining_time_uses_measured_working_minutes_not_wall_clock(self):
+        start = self.begin_issue()
+        (self.root / 'devel-loop/loop_state/retrospective_history.jsonl').write_text(
+            json.dumps({'id': 'OLD-1', 'measured': {'span_minutes': 40, 'coordinator': {'self_reported_minutes': 90}}}) + '\n'
+            + json.dumps({'id': 'OLD-2', 'measured': {'span_minutes': 30, 'coordinator': {'self_reported_minutes': None}}}) + '\n')
+        # A two-day wall-clock span in history must not drive the estimate.
+        records.save_history(self.root, {'id': 'OLD-1', 'timestamp': '2026-01-01T00:00:00+00:00', 'outcome': 'completed',
+                                         'summary': 'old', 'closed_at': '2026-01-03T00:00:00+00:00'})
+        records.save_history(self.root, {'id': start['id'], 'timestamp': 'x', 'outcome': 'partial', 'summary': 'other'})
+        facts = notifications.loop_status(self.root)
+        self.assertIn(facts['eta'], ('~1 h 30 min', '~1 h 29 min'))  # upper median 90 min, less the seconds elapsed
 
 
 class LoopEndTextTests(LoopFixture):
@@ -364,6 +378,24 @@ class RetainedTurnTests(LoopFixture):
         self.assertEqual(agent_runtime.wait_for_turns(self.root, 5, session, poll=0.01)['status'], 'idle')
         self.assertEqual(agent_runtime.wait_for_turns(self.root, 5, poll=0.01)['status'], 'idle')
 
+    def test_one_wait_fits_inside_one_foreground_tool_call(self):
+        self.assertLess(agent_runtime.WAIT_DEFAULT_SECONDS, 600)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(agent_runtime.main(['--root', str(self.root), 'wait']), 0)
+        self.assertEqual(json.loads(out.getvalue())['status'], 'idle')
+
+    def test_wait_and_wake_report_status_and_a_due_heartbeat(self):
+        start = self.begin_issue(heartbeat_minutes=60)
+        result = agent_runtime.wait_for_turns(self.root, 5, poll=0.01)
+        self.assertIn('working on ' + start['id'], result['status_line'])
+        self.assertNotIn('heartbeat', result)
+        stamp = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=61)).isoformat()
+        with patch.object(notifications, 'now', lambda: stamp):
+            self.assertIn('due', agent_runtime.wait_for_turns(self.root, 5, poll=0.01)['heartbeat'])
+        stamp = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=125)).isoformat()
+        with patch.object(notifications, 'now', lambda: stamp):
+            self.assertIn('HEARTBEAT DUE', loop_control.wake(self.root, 0))
+
     def test_a_retained_wait_reads_as_status_and_names_the_helper(self):
         self.run_loop()
         with patch.object(ralph_stop, 'retained_in_flight', return_value=True):
@@ -371,6 +403,7 @@ class RetainedTurnTests(LoopFixture):
         self.assertEqual(result['decision'], 'block')
         self.assertTrue(result['reason'].startswith('ESX status, not an error'))
         self.assertIn('agent_runtime.py wait', result['reason'])
+        self.assertIn('600000 ms', result['reason'])
         self.assertIn('iteration: 1', self.state_text())
 
 

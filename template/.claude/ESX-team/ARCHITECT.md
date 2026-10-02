@@ -184,8 +184,10 @@ loop is alive.
   ending it, arm `python3 tools/esx/loop_control.py wake --minutes 15` as a
   background command, so the session is woken at least every 15 minutes.
 - A retained CLI turn sends no completion event. Wait for it inside the turn
-  with `python3 tools/esx/agent_runtime.py wait --timeout 840`, repeated while
-  it reports `running`.
+  with `python3 tools/esx/agent_runtime.py wait` (540 s by default), run as a
+  foreground command with a 600000 ms tool timeout and repeated while it reports
+  `running`. A longer wait is moved to the background by the tool and stops
+  blocking. Start a long retained turn as a background command first.
 - Each time you wake or a wait returns, print `python3 tools/esx/loop_control.py
   status --line` (also the `STATUS:` line of `--next`) to the owner's screen.
   This status goes to the screen only, never to the chat channel.

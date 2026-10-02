@@ -157,7 +157,10 @@ def loop_lock(root):
 
 MAX_DISPATCH_WAITS = 3
 NATIVE_STALE_SECONDS = 6 * 3600
-MAX_ADVANCES_PER_MINUTE = 12
+# No real iteration of work ends in under about 20 s, so this many loop advances
+# inside the window means something other than the coordinator is driving the loop.
+MAX_ADVANCES = 6
+ADVANCE_WINDOW_SECONDS = 120
 
 
 def clock():
@@ -397,8 +400,9 @@ def _step_locked(root, hook_input):
         atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
         log(root, 'WAIT', n, f'retained dispatch in flight; iteration not advanced ({waits + 1}/{MAX_DISPATCH_WAITS})')
         return {'decision': 'block', 'reason': 'ESX status, not an error: a retained role turn for the active issue '
-                'is still running. Block on it with `python3 tools/esx/agent_runtime.py wait --timeout 840` '
-                '(repeat while it reports running, and print a one-line status for the owner between waits), '
+                'is still running. Block on it with `python3 tools/esx/agent_runtime.py wait` as a foreground command '
+                'with a 600000 ms tool timeout (repeat while it reports running, and print a one-line status for '
+                'the owner between waits), '
                 'then continue with tools/esx/loop_gate.py --next.',
                 'systemMessage': f'ESX iteration {n} held: retained dispatch in flight ({waits + 1}/{MAX_DISPATCH_WAITS}).'}
     stamps = []
@@ -408,19 +412,19 @@ def _step_locked(root, hook_input):
         except ValueError:
             pass
     moment = clock()
-    recent = [t for t in stamps if 0 <= moment - t < 60]
-    if len(recent) >= MAX_ADVANCES_PER_MINUTE:
+    recent = [t for t in stamps if 0 <= moment - t < ADVANCE_WINDOW_SECONDS]
+    if len(recent) >= MAX_ADVANCES:
         # No real iteration of work finishes this fast, so something is driving the
         # loop that should not be. Keep the state and withhold the continuation.
-        log(root, 'ANOMALY', n, f'{len(recent)} loop advances within 60 s; continuation withheld, state kept')
-        return {'systemMessage': f'ESX loop paused: {len(recent)} advances within one minute is not normal work. '
+        log(root, 'ANOMALY', n, f'{len(recent)} loop advances within {ADVANCE_WINDOW_SECONDS} s; continuation withheld, state kept')
+        return {'systemMessage': f'ESX loop paused: {len(recent)} advances within {ADVANCE_WINDOW_SECONDS} s is not normal work. '
                                  'The loop state is preserved; check .claude/esx-loop-exit.log, then run /esx-loop '
                                  'to continue.'}
     header = re.sub(r'(?m)^[ \t]*iteration[ \t]*:[ \t]*[^\r\n]*$',
                     'iteration: ' + str(n + 1), parsed['header'])
     header = set_field(header, 'dispatch_waits', None)
     header = set_field(header, 'advance_times',
-                       ','.join(f'{t:.0f}' for t in (recent + [moment])[-MAX_ADVANCES_PER_MINUTE:]))
+                       ','.join(f'{t:.0f}' for t in (recent + [moment])[-MAX_ADVANCES:]))
     updated = ('---\n' + header + '\n---\n' + parsed['prompt']).encode()
     temporary = None
     try:

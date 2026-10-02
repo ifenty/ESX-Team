@@ -123,16 +123,26 @@ def loop_status(root):
     else:
         issue = None
         phase = 'retrospective' if ralph_stop.work_in_progress(root) else 'selecting the next issue'
+    # Prefer measured working time: a closed issue's wall-clock span includes
+    # pauses (a usage limit, an overnight stop) that say nothing about the work.
     spans = []
-    for row in history:
-        try:
-            import datetime as dt
-            spent = (dt.datetime.fromisoformat(row['closed_at'])
-                     - dt.datetime.fromisoformat(row.get('start_timestamp') or row['timestamp'])).total_seconds()
-        except (KeyError, ValueError, TypeError):
-            continue
-        if spent > 0:
-            spans.append(spent)
+    for row in json_lines(local(root, f'{STATE}/retrospective_history.jsonl')):
+        measured = row.get('measured') if isinstance(row.get('measured'), dict) else {}
+        coordinator = measured.get('coordinator') if isinstance(measured.get('coordinator'), dict) else {}
+        minutes = [m for m in (measured.get('span_minutes'), coordinator.get('self_reported_minutes'))
+                   if type(m) in (int, float) and m > 0]
+        if minutes:
+            spans.append(max(minutes) * 60)
+    if not spans:
+        for row in history:
+            try:
+                import datetime as dt
+                spent = (dt.datetime.fromisoformat(row['closed_at'])
+                         - dt.datetime.fromisoformat(row.get('start_timestamp') or row['timestamp'])).total_seconds()
+            except (KeyError, ValueError, TypeError):
+                continue
+            if spent > 0:
+                spans.append(spent)
     if spans and actionable:
         spans.sort()
         typical = spans[len(spans) // 2]

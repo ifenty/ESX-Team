@@ -32,7 +32,8 @@ documented interpreter.
     final verification, closeout, commit, notifications and its retrospective. Keep
     following `loop_gate.py --next`. When `--next` says the owner cancelled, report
     what was completed and what remains open, and end the turn. Do not select
-    another issue.
+    another issue. If the active iteration will not be finished (it was abandoned,
+    or its state is stale), a cancel never completes: use `abort`.
   - If it reports `cancelled`, nothing was in progress and the loop has ended;
     deliver the queued notification and stop.
 - `abort`: run `python3 tools/esx/loop_control.py abort --reason 'Owner aborted through /esx-loop'`.

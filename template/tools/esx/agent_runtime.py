@@ -268,6 +268,8 @@ def session_path(root, session):
     return local(root, "devel-loop/loop_state/agent_runtime/sessions/" + session)
 
 
+# Below the 600 s cap of a foreground tool call, so one wait is one blocking call.
+WAIT_DEFAULT_SECONDS = 540
 ROLE_TURN_SECONDS = {"bob": 3600}
 DEFAULT_TURN_SECONDS = 1800
 TIMEOUT_HELP = ("wall-clock seconds for this turn; default: runtime.turn_timeout_seconds in esx/project.json "
@@ -322,13 +324,26 @@ def wait_for_turns(root, timeout, session=None, poll=2.0):
             fcntl.flock(handle, fcntl.LOCK_UN)
         return False
 
+    def report(status, following):
+        # A long in-turn wait fires no Stop event, so the owner's status line and
+        # the channel heartbeat are produced here.
+        result = {"status": status, "waited_seconds": round(time.monotonic() - begun, 1), "next": following}
+        if (root / "esx/project.json").is_file():
+            try:
+                import loop_control
+                import notifications
+                result["status_line"] = loop_control.status_line(root)
+                if notifications.heartbeat(root):
+                    result["heartbeat"] = "due: deliver the queued loop_heartbeat (tools/esx/notifications.py pending)"
+            except (ValueError, OSError, KeyError, TypeError):
+                pass
+        return result
+
     while running():
         if time.monotonic() - begun >= timeout:
-            return {"status": "running", "waited_seconds": round(time.monotonic() - begun, 1),
-                    "next": "the turn is still running; run wait again"}
+            return report("running", "the turn is still running; print status_line for the owner, then run wait again")
         time.sleep(poll)
-    return {"status": "idle", "waited_seconds": round(time.monotonic() - begun, 1),
-            "next": "no retained turn is running; continue with tools/esx/loop_gate.py --next"}
+    return report("idle", "no retained turn is running; continue with tools/esx/loop_gate.py --next")
 
 
 def role_runtime_settings(root):
@@ -796,7 +811,7 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                 "record your own orientation and preserve project permissions. "
                 "Read supplied review references and confirm the exact sealed documentation in your footer. "
                 "This turn is stopped at turn_deadline_utc and anything not on disk is lost: write each finished "
-                "unit to disk as you go, check `date -u` before starting a long unit, and when less than a fifth "
+                "unit to disk as you go, before starting a long unit read the clock with `python3 -c \"import datetime; print(datetime.datetime.now(datetime.timezone.utc))\"`, and when less than a fifth "
                 "of turn_minutes remains, finish the unit in hand and report with your footer, listing what is left.")
             command += ["--append-system-prompt-file", str(turn / "assignment.txt")]
         if transition_result and transition_result["classification"] == "assessed":
@@ -1094,7 +1109,7 @@ def main(argv=None):
     status.add_argument("--session", required=True)
     hold = sub.add_parser("wait", help="block until no retained turn is running (or the timeout passes)")
     hold.add_argument("--session", help="watch one session; default: every running turn of the active issue")
-    hold.add_argument("--timeout", type=float, default=840)
+    hold.add_argument("--timeout", type=float, default=WAIT_DEFAULT_SECONDS)
     recover = sub.add_parser("recover", help="close crashed turns that never wrote a record")
     recover.add_argument("--session", required=True)
     recover.add_argument("--reason", required=True)

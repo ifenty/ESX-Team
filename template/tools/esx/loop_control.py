@@ -129,6 +129,16 @@ def status_line(root):
     return f'ESX status {stamp}: ' + (facts['text'] if facts else 'no active loop.')
 
 
+def heartbeat_notice(root):
+    """Queue the channel heartbeat when it is due; say so, since a long wait fires no Stop event."""
+    import notifications
+    try:
+        due = notifications.heartbeat(root) if local(root, 'esx/project.json').exists() else None
+    except (ValueError, OSError, KeyError, TypeError):
+        return ''
+    return '\nHEARTBEAT DUE: deliver the queued loop_heartbeat (tools/esx/notifications.py pending).' if due else ''
+
+
 def wake(root, minutes=None):
     """Sleep until the interval passes or the loop ends, then print the status line.
 
@@ -148,7 +158,7 @@ def wake(root, minutes=None):
     deadline = time.monotonic() + max(float(minutes), 0) * 60
     while time.monotonic() < deadline and local(root, STATE).exists():
         time.sleep(min(5, max(deadline - time.monotonic(), 0)))
-    return status_line(root)
+    return status_line(root) + heartbeat_notice(root)
 
 
 def cancel(root, reason='cancelled by the project owner', now=False):
@@ -181,8 +191,9 @@ def cancel(root, reason='cancelled by the project owner', now=False):
                 return {'status': 'cancelling', 'state': STATE, 'finishing': unfinished,
                         'detail': f'No new iteration will start. {unfinished} continues through review, closeout '
                                   'and its retrospective, and the loop ends after that. Keep working with '
-                                  'tools/esx/loop_gate.py --next. To stop immediately and abandon work in '
-                                  'progress, run `loop_control.py abort`.'}
+                                  'tools/esx/loop_gate.py --next. If that iteration will not be finished '
+                                  '(it was abandoned, or its state is stale), the loop never reaches its '
+                                  'end this way: run `loop_control.py abort` to stop immediately.'}
         try:
             iteration = parse_state(original.decode())['iteration']
         except (ValueError, UnicodeError):
