@@ -86,8 +86,28 @@ def changes(before, after):
     return result
 
 
-def compatibility(root, state, contract, assessment=None):
-    """Allow identical effective configuration or a sealed, explicitly assessed delta."""
+def cli_patch_only(before, after, delta):
+    """True when only the CLI binary changed, within one minor release and not backwards."""
+    import re
+    fields = {change.get('field') for change in delta}
+    if not fields or not fields <= {'binary', 'binary_sha256', 'version'}:
+        return False
+
+    def release(text):
+        match = re.search(r'(\d+)\.(\d+)\.(\d+)', str(text or ''))
+        return tuple(int(part) for part in match.groups()) if match else None
+
+    old, new = release(before.get('version')), release(after.get('version'))
+    return bool(old and new and old[:2] == new[:2] and new[2] >= old[2])
+
+
+def compatibility(root, state, contract, assessment=None, probe=None):
+    """Allow identical effective configuration or a sealed, explicitly assessed delta.
+
+    ``probe`` is a callable returning the live continuity evidence for the current
+    configuration. It is consulted only for a CLI patch update, where a passing
+    probe on the new binary replaces a hand-written judgment per session.
+    """
     before = state.get('runtime_contract')
     delta = changes(before, contract)
     if state['runtime_fingerprint'] == contract['sha256']:
@@ -97,6 +117,18 @@ def compatibility(root, state, contract, assessment=None):
     if before and allow_additions_only(before, contract, delta):
         # The owner widened the allow list; nothing an existing turn relied on changed.
         return {'classification': 'permission_additions', 'changes': delta}
+    if before and before.get('effective_manifest') and cli_patch_only(before, contract, delta):
+        # An auto-update of the CLI changes nothing the project configured. One
+        # live probe of the new binary covers every retained session.
+        evidence = probe() if callable(probe) else None
+        if isinstance(evidence, dict) and evidence.get('status') == 'passed' and evidence.get('evidence'):
+            return {'classification': 'cli_patch_update', 'changes': delta, 'probe': evidence['evidence'],
+                    'versions': [before.get('version'), contract.get('version')]}
+        if assessment is None:
+            raise ValueError(f"the Claude CLI was updated within one minor release ({before.get('version')} -> "
+                             f"{contract.get('version')}) and nothing else changed. Run `agent_runtime.py probe` "
+                             'once on the new binary; a passing probe lets every retained session resume without '
+                             'assess-transition.')
     expected = dict(session_id=state['session_id'], issue_id=state['issue_id'],
                     before=state['runtime_fingerprint'], after=contract['sha256'], changes=delta)
     if assessment is None:

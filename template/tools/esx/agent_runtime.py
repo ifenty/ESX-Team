@@ -761,7 +761,8 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             if not loop_iteration.start_status(root, active)['validated']:
                 raise ValueError('successful --check-start required before dispatch')
         contract = runtime_contract(root, executable, None if probe else role)
-        transition_result = runtime_recovery.compatibility(root, state, contract, transition) if resumed else None
+        transition_result = runtime_recovery.compatibility(
+            root, state, contract, transition, probe=lambda: probe_status(root, executable)) if resumed else None
         event_id = uuid.uuid4().hex
         turn = folder / "turns" / event_id
         turn.mkdir(parents=True)

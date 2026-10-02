@@ -67,6 +67,27 @@ investigation; never relabel these events as successful. A replacement needs its
 actual predecessor ID, reason and transferred findings. Runtime history supports
 recovery without requiring another agent to reconstruct prior conversations.
 
+A retained session's cost per turn grows with its context. Replacing a role
+because of that cost is a legitimate replacement and needs no failure: have the
+outgoing agent write a handoff summary (findings so far, decisions, open
+questions, evidence paths) to a file under `devel-loop/loop_state/`, start the
+new session with `--replaces-agent <old id> --replacement-reason "context cost:
+<measured per-turn cost>; handoff at <path>"`, and cite the handoff file in
+`agent_continuity.replacements[].evidence_refs`. Do this at a round boundary, never
+between a review and the correction it asked for.
+
+A turn is stopped at its wall-clock limit: 3600 s for bob and 1800 s for the
+other roles unless `runtime.turn_timeout_seconds` in `esx/project.json` (a number,
+or an object keyed by role with an optional `default`) or `--timeout` says
+otherwise. Size it from the project's own measured turns. Start a turn expected
+to outlast one tool call as a background command, then block on it with
+`agent_runtime.py wait`.
+
+When the Claude CLI updates itself within one minor release and nothing the
+project configures changed, run `agent_runtime.py probe` once on the new binary.
+A passing probe lets every retained session resume as `cli_patch_update`; no
+`assess-transition` judgment is needed for each session.
+
 For an active issue, Richard's initial and corrected reviews require the exact
 candidate and sealed documentation packet. Build it using `workflow_records.py
 review-packet`, then dispatch with `--review-packet`:

@@ -138,10 +138,7 @@ def readiness(root, packet, stage='review', owner=None):
                         findings.append(finding('ATTEMPT_RUNNING', 'subagents.' + role, 'turn still running',
                                                 'Wait for the recorded terminal event.', agent=entry.get('dispatch_id'),
                                                 event=entry.get('dispatch_event_id')))
-        try:
-            import adx_workflow as lifecycle
-        except ImportError:
-            import workflow_policy as lifecycle
+        import workflow_policy as lifecycle
         for entry in selected:
             if (entry.get('agent') or entry.get('agent_name')) == 'bob':
                 event = next(e for e in dispatches if e['event_id'] == entry['dispatch_event_id'])

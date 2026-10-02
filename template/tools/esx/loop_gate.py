@@ -337,6 +337,28 @@ class Gate:
                     f'the same footer field, discarded review identities, or a recurring dispatch failure mode.')
         return None
 
+    def lesson_notices(self):
+        """Active lessons with their triggers, shown when an issue is prepared.
+
+        A lesson only recorded is not applied: one recurred a single issue after it
+        was written. Active lessons are short by design, so all are shown and the
+        coordinator states in the brief which triggers apply.
+        """
+        path = local(self.root, 'lessons_learned.md')
+        if not path.exists():
+            return []
+        lines, notices = path.read_text().splitlines(), []
+        for index, line in enumerate(lines):
+            match = re.match(r'\s*-\s*\[(LL-[A-Za-z0-9-]+)\]\s*(.+)', line)
+            if not match or '<' in match[2]:
+                continue
+            following = lines[index + 1].strip() if index + 1 < len(lines) else ''
+            trigger = following[len('Trigger:'):].strip() if following.startswith('Trigger:') else ''
+            notices.append(f'LESSON [{match[1]}] {match[2].strip()}' + (f' Trigger: {trigger}' if trigger else ''))
+        if notices:
+            notices.append('State in the brief which of these triggers apply to this issue and how each is applied.')
+        return notices
+
     def rejection_streak(self, start):
         """Correction rounds of the active iteration whose latest review rejected, trailing.
 
@@ -508,6 +530,8 @@ def main():
         elif args.prepare:
             result = gate.prepare(args.prepare, args.kind, args.risk, args.owner, args.priority,
                                   args.map, args.target, args.doc, args.use, args.diagnosis, args.budget_kind)
+            for notice in gate.lesson_notices():
+                print(notice, file=sys.stderr)
         elif args.check_start:
             result = gate.check_start(args.late_reason)
         else:

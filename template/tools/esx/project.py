@@ -241,10 +241,72 @@ def environment(root, cfg):
     for name in cfg['external_inputs']:
         path = Path(name) if Path(name).is_absolute() else root / name
         inputs[str(path.resolve())] = file_hash(path)
-    return {'python': sys.version, 'python_optimization': sys.flags.optimize,
+    facts = pinned_facts(cfg)
+    return {'python': facts['version'] if facts else sys.version,
+            'python_optimization': facts['optimize'] if facts else sys.flags.optimize,
             'executable': interpreter(cfg), 'platform': platform.platform(),
-            'variables': {k: os.environ.get(k) for k in cfg['environment_variables']},
-            'tools': probes, 'inputs': inputs}
+            'variables': measured_variables(cfg), 'tools': probes, 'inputs': inputs}
+
+
+_PINNED = {}
+
+
+def pinned_facts(cfg):
+    """Version and prefix of the configured interpreter, measured once per process.
+
+    None when the project pins no interpreter. With one pinned, the evidence
+    fingerprint describes that interpreter, not whichever Python or activated
+    shell happens to run the ESX tool. Otherwise the same unchanged candidate is
+    "stale" in one shell and current in another (TEAM-EVIDENCE-SHELL-ENV-001).
+    """
+    path = (cfg or {}).get('python')
+    if not path:
+        return None
+    if path not in _PINNED:
+        try:
+            run = subprocess.run([path, '-c', 'import json, sys; print(json.dumps({"version": sys.version, '
+                                  '"optimize": sys.flags.optimize, "prefix": sys.prefix, "base_prefix": sys.base_prefix}))'],
+                                 capture_output=True, text=True, timeout=30)
+            problem = (run.stderr.strip().splitlines() or [''])[-1][:300] if run.returncode != 0 else None
+        except (OSError, subprocess.SubprocessError) as exc:
+            problem = str(exc)
+        if problem is not None:
+            raise ValueError(f'configured "python" in esx/project.json cannot run ({path}): {problem}')
+        _PINNED[path] = json.loads(run.stdout)
+    return _PINNED[path]
+
+
+def measured_variables(cfg):
+    """Declared environment variables as the evidence fingerprint records them.
+
+    With a pinned interpreter, the variables an environment activation sets
+    (CONDA_PREFIX, CONDA_DEFAULT_ENV, VIRTUAL_ENV) are taken from that
+    interpreter's own prefix, and PATH is recorded with the conda installation's
+    own bin directories replaced by the pinned environment's. Every other
+    variable, and every variable of a project without a pin, is read from the
+    calling process. Tool identity itself is measured by toolchain_commands.
+    """
+    values = {k: os.environ.get(k) for k in cfg['environment_variables']}
+    facts = pinned_facts(cfg)
+    if not facts:
+        return values
+    prefix = Path(facts['prefix'])
+    conda = (prefix / 'conda-meta').is_dir()
+    root = prefix.parent.parent if prefix.parent.name == 'envs' else prefix
+    derived = {'CONDA_PREFIX': str(prefix) if conda else None,
+               'CONDA_DEFAULT_ENV': (prefix.name if prefix.parent.name == 'envs' else 'base') if conda else None,
+               'VIRTUAL_ENV': str(prefix) if facts['prefix'] != facts['base_prefix'] else None}
+    for name, value in derived.items():
+        if name in values:
+            values[name] = value
+    if conda and values.get('PATH') is not None:
+        def managed(entry):
+            path = Path(entry)
+            return path in (root / 'bin', root / 'condabin') or (
+                path.name == 'bin' and path.parent.parent == root / 'envs')
+        kept = [entry for entry in values['PATH'].split(os.pathsep) if entry and not managed(entry)]
+        values['PATH'] = os.pathsep.join([str(prefix / 'bin')] + kept)
+    return values
 
 
 def atomic_json(path, value):
