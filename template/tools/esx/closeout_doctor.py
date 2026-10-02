@@ -30,9 +30,11 @@ ERRORS = (ValueError, OSError, KeyError, TypeError, SyntaxError, subprocess.Subp
 ORDERING = ('Finalize every signed field before taking the final verification receipt. '
             'final_verification.py run binds its receipt to review_signature, a digest over the closeout fields '
             'listed here; editing any of them afterwards makes --check-done report "final verification receipt '
-            'is stale". A stale receipt caused only by such a bookkeeping edit does not need a fresh scientific '
-            'execution: rerun final_verification.py run without --fresh and it rebinds the unchanged execution '
-            'to the current acceptance.')
+            'is stale". A receipt taken from the review packet is always stale against the finished closeout, '
+            'because the packet lacks these closeout fields. Neither case needs a fresh scientific execution: run '
+            '`loop_lifecycle.py rebind-receipt`, which issues a receipt for issue-done.json from the unchanged '
+            'execution and cites it there (equivalently, `final_verification.py run --review '
+            'devel-loop/loop_state/issue-done.json` without --fresh, then cite the receipt it prints).')
 
 
 def signature_notice(done, current_ref=None):
@@ -108,8 +110,9 @@ def diagnose(gate, done_path=None):
              workflow.validate_transition(start_policy, policy, done.get('workflow_amendment')),
              'Record workflow_amendment.previous (the start workflow) and its reason.')
     many('SCOPE_DECISION_INVALID', 'scope_decisions', workflow.validate_scope_decisions(done.get('scope_decisions', []), completed),
-         'Classify each decision as ' + ', '.join(workflow.SCOPE_CLASSIFICATIONS) + ' with status and evidence_refs; '
-         'separate_existing and separate_new also need issue_id.')
+         'Each decision is {"classification": one of ' + ', '.join(workflow.SCOPE_CLASSIFICATIONS) + ', "status": '
+         'resolved|open|blocked, "evidence_refs": [project-relative path strings], "reason": text}; '
+         'separate_existing and separate_new also need "issue_id"; a dependency or introduced_regression must be resolved.')
     many('MAINTENANCE_START', 'maintenance', check('MAINTENANCE_START', 'maintenance', lambda: maintenance.check_start(root, start),
          'Restore the start maintenance records.') or [], 'Restore the start maintenance records.')
     history = json_lines(local(root, f'{STATE}/loop_history.jsonl'))
@@ -282,12 +285,14 @@ def diagnose(gate, done_path=None):
                 evidence = verify.load_evidence(root, verification.get(s))
                 if not (evidence['suite'] == s and evidence['commands'] == gate.cfg['verification'][s]):
                     raise ValueError(f'{s}: evidence must run the complete configured suite')
-            check('VERIFICATION_INVALID', 'verification.' + suite, suite_evidence, f'Rerun verify.py --suite {suite}.')
+            check('VERIFICATION_INVALID', 'verification.' + suite, suite_evidence, f'Rerun verify.py --suite {suite} and cite the {{"path", "sha256"}} it prints as "evidence" '
+                  f'(devel-loop/loop_state/verification/<sha256>.json, never a cache-*.json file).')
         if policy.get('execution_version') == 1 and kind == 'scientific_change':
             pending = (done.get('preparation') or {}).get('pending')
             need(not pending, 'PREPARATION_PENDING', 'preparation.pending', pending,
-                 'Resolve each listed item, then remove preparation.pending BEFORE taking the receipt (it is not signed, '
-                 'but final_verification.py refuses a packet that still has pending fields).')
+                 'Resolve each listed item, then delete the whole "preparation" object from the closeout BEFORE taking '
+                 'or rebinding the receipt (it is not signed, but final_verification.py refuses a record that still has '
+                 'pending fields). preparation.shapes shows the expected form of each judged field.')
             index = local(root, f'{STATE}/final-verification/current.json')
             if index.exists():
                 current = check('RECEIPT_INVALID', 'final-verification/current.json', lambda: json_file(
@@ -302,8 +307,9 @@ def diagnose(gate, done_path=None):
                     add('RECEIPT_SIGNATURE_STALE', 'verification.receipt',
                         'the receipt was taken before these signed closeout fields reached their current values: '
                         + ', '.join(final_verification.REVIEW_SIGNATURE_FIELDS),
-                        'Finish all signed fields, then rerun final_verification.py run (no --fresh): it reuses the '
-                        'unchanged scientific execution and issues a receipt bound to the current fields.')
+                        'Finish all signed fields, then run `loop_lifecycle.py rebind-receipt`: it issues a receipt bound '
+                        'to this closeout from the unchanged scientific execution (no suite run) and cites it in '
+                        'verification.receipt. A receipt taken with --review <review packet> never matches the closeout.')
                 else:
                     check('RECEIPT_INVALID', 'verification.receipt', lambda: final_verification.check_receipt(root, done),
                           'Finalize every signed field, then rerun final_verification.py run.')
@@ -312,7 +318,8 @@ def diagnose(gate, done_path=None):
             lambda: maintenance.check_done(root, start, done, records, candidate), 'Repair the documentation record.') or [],
             'Complete and seal the documentation report; cite its exact reference.')
     many('MILESTONE_INVALID', 'milestone', workflow_records.check_milestone(
-        root, done, allow_legacy=policy.get('execution_version') != 1), 'Record milestone.logged false, or an exact section reference.')
+        root, done, allow_legacy=policy.get('execution_version') != 1), 'Record {"logged": false, "reason": "..."}, or logged true with the exact {"path", "heading", "sha256"} '
+        'reference printed by `workflow_records.py milestone`.')
 
     # The strict gate remains authoritative; replay it without side effects.
     # --check-done moves a completed entry to closed_issues.md on acceptance, so

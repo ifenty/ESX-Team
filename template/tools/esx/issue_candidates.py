@@ -204,11 +204,35 @@ def load(root, ref, issue):
     return record
 
 
+def stale_paths(captured, current, limit=8):
+    """Name what differs between a captured file map and the working tree.
+
+    Returns a short text listing added, removed and changed paths (each capped at
+    ``limit``), so a stale snapshot says which file invalidated it.
+    """
+    added = sorted(set(current) - set(captured))
+    removed = sorted(set(captured) - set(current))
+    changed = sorted(name for name in set(captured) & set(current) if captured[name] != current[name])
+    parts = []
+    for label, names in (('added', added), ('removed', removed), ('changed', changed)):
+        if names:
+            shown = ', '.join(names[:limit]) + (f' (+{len(names) - limit} more)' if len(names) > limit else '')
+            parts.append(f'{label}: {shown}')
+    return '; '.join(parts)
+
+
 def check_current(root, ref, issue):
-    """Reject source, mode, link, addition or deletion changes since capture."""
+    """Reject source, mode, link, addition or deletion changes since capture.
+
+    The error names the added, removed and changed paths, because a file created
+    inside the inventory scope (for example a new project record) invalidates the
+    reviewed candidate just as a source edit does.
+    """
     record = load(root, ref, issue)
-    require(record['files'] == measure(root, record['scope']),
-            'candidate snapshot is stale; capture and review the changed candidate')
+    current = measure(root, record['scope'])
+    require(record['files'] == current,
+            'candidate snapshot is stale; capture and review the changed candidate ('
+            + (stale_paths(record['files'], current) or 'file map differs') + ')')
     return record
 
 
@@ -255,22 +279,44 @@ def extract(root, ref, issue, destination):
     return {'destination': str(dest), 'files': len(record['files']), 'signature': record['signature']}
 
 
+def ref_arg(value):
+    """Accept a JSON ``{"path", "sha256"}`` reference inline or as the path of a file holding one.
+
+    Matches doc_contract.parse_ref, so the reference printed by one evidence tool
+    can be passed to the next either way.
+    """
+    text = value.strip()
+    if not text.startswith('{'):
+        path = Path(text)
+        if not path.is_file():
+            raise argparse.ArgumentTypeError('expected an inline {"path","sha256"} JSON reference '
+                                             'or the path of a file containing one: ' + text)
+        text = path.read_text()
+    try:
+        ref = json.loads(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('reference is not valid JSON: ' + str(exc)) from exc
+    if not (isinstance(ref, dict) and isinstance(ref.get('path'), str) and isinstance(ref.get('sha256'), str)):
+        raise argparse.ArgumentTypeError('reference must be a JSON object with "path" and "sha256"')
+    return ref
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     sub = parser.add_subparsers(dest='command', required=True)
     capture_parser = sub.add_parser('capture', help='retain the working candidate and extra witness inputs')
     capture_parser.add_argument('--issue', required=True)
-    capture_parser.add_argument('--baseline', type=json.loads)
+    capture_parser.add_argument('--baseline', type=ref_arg)
     capture_parser.add_argument('--path', action='append', default=[])
     for name in ('check', 'extract', 'diff'):
         command = sub.add_parser(name)
         command.add_argument('--issue', required=True)
-        command.add_argument('--candidate', type=json.loads, required=True)
+        command.add_argument('--candidate', type=ref_arg, required=True)
         if name == 'extract':
             command.add_argument('--destination', type=Path, required=True)
         if name == 'diff':
-            command.add_argument('--before', type=json.loads, required=True)
+            command.add_argument('--before', type=ref_arg, required=True)
     args = parser.parse_args()
     try:
         if args.command == 'capture':

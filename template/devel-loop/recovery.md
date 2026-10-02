@@ -74,7 +74,14 @@ status, error, timing and process return code. They supply no approval, independ
 check or successful test. Running attempts keep readiness blocked. The final
 validators require the failed attempt's successful continuation or explicit
 replacement disposition and reject a later failed review that would otherwise
-expose an older approval.
+expose an older approval. A later completed turn of the same retained agent is
+its continuation, whether it was resumed in the same correction round (a turn
+limit, a stale orientation) or a later one. A turn closed by `agent_runtime.py
+recover` has no correction round; select it with `correction_round: null`.
+Reference arguments (`--baseline`, `--candidate`, `--before`, `--previous`) take
+the JSON reference inline or the path of a file holding it. A stale candidate
+names the added, removed and changed paths; a new file inside the inventory
+scope, such as a project record, invalidates the reviewed candidate too.
 
 ## Readiness diagnostics
 
@@ -182,8 +189,15 @@ its issue, owner, measured source/tests/configuration/toolchain dependencies and
 intact log still agree. It records **reused evidence** and retains the original
 execution receipt. Changed numerical dependencies, invalid logs or unresolved
 correctness findings prevent reuse. No agent edits a stored receipt to refresh it.
-After a re-run, `loop_lifecycle.py rebind-receipt` re-points a prepared closeout
-at the current receipt ([verification](verification.md)).
+A receipt taken from the review packet never matches the finished closeout,
+because the packet lacks the closeout fields that `review_signature` covers
+(`scope_decisions`, `agent_continuity` and the others). After filling
+issue-done.json, run `loop_lifecycle.py rebind-receipt`: it issues a receipt for
+the closeout from the unchanged execution, without running the suite, and cites
+it in `verification.receipt` ([verification](verification.md)). It refuses when
+the execution can no longer be reused; a fresh `final_verification.py run` is
+then required. The closeout draft's `preparation.shapes` lists the expected form
+of each judged field; delete the `preparation` object before rebinding.
 
 ## Process ledgers and budget exhaustion
 

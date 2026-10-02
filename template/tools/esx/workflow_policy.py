@@ -111,9 +111,12 @@ def validate_scope_decisions(decisions, completed=False):
         if decision.get("status") not in ("resolved", "open", "blocked"):
             errors.append(f"{label} needs status resolved, open, or blocked")
         evidence = decision.get("evidence_refs")
-        if (not isinstance(evidence, list) or not evidence
+        if isinstance(evidence, list) and any(isinstance(e, dict) for e in evidence):
+            errors.append(f"{label} evidence_refs must be project-relative path strings, "
+                          'not {"path", "sha256"} objects')
+        elif (not isinstance(evidence, list) or not evidence
                 or any(not isinstance(e, str) or not e.strip() for e in evidence)):
-            errors.append(f"{label} needs evidence_refs")
+            errors.append(f"{label} needs evidence_refs (a non-empty list of project-relative path strings)")
         if kind in SEPARATE_CLASSIFICATIONS and not str(decision.get("issue_id", "")).strip():
             errors.append(f"{label} needs the separate issue_id ({kind})")
         if completed and (kind == "unknown" or
@@ -182,7 +185,10 @@ def resolved_dispatch(event, records, done):
         if identity(event, 'issue_id') != done.get('id'):
             continue
         same = later.get('agent_id') == event.get('agent_id')
-        if same and later.get('correction_round', 0) > event.get('correction_round', 0):
+        # A later completed turn of the same retained agent is its continuation,
+        # whether Arch resumed it within the same correction round (a timeout, a
+        # stale orientation) or in a later one. A recovered orphan has no round.
+        if same and (later.get('correction_round') or 0) >= (event.get('correction_round') or 0):
             return True
         replacements = (done.get('agent_continuity') or {}).get('replacements', [])
         if any(isinstance(r, dict) and r.get('role') == role
