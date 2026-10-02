@@ -280,6 +280,15 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.1: a usable time estimate; a worked orientation example
+
+Found by the 1.6.0 acceptance run on MITgcm_new_runoff. The remaining-time
+estimate in the status line and the heartbeat took the larger of an issue's span
+and the coordinator's recorded working minutes, so one issue paused for two days
+gave "~233 h remaining". It now uses the recorded working minutes and falls back
+to the span only for an issue that has none. `doc_contract.py navigate --help`
+ends with a worked example of `--map`, `--target` and `--doc`.
+
 ## Version 1.6.0: a loop the owner can stop, watch and trust
 
 Fixes and additions from two projects' measured use (1D_Mixing_Model and

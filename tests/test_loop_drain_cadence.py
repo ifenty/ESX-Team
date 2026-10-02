@@ -268,17 +268,18 @@ class HeartbeatTests(LoopFixture):
 
 
 class EstimateTests(LoopFixture):
-    def test_remaining_time_uses_measured_working_minutes_not_wall_clock(self):
+    def test_remaining_time_uses_recorded_working_minutes_not_the_span_with_its_pauses(self):
         start = self.begin_issue()
         (self.root / 'devel-loop/loop_state/retrospective_history.jsonl').write_text(
-            json.dumps({'id': 'OLD-1', 'measured': {'span_minutes': 40, 'coordinator': {'self_reported_minutes': 90}}}) + '\n'
+            json.dumps({'id': 'OLD-1', 'measured': {'span_minutes': 2805, 'coordinator': {'self_reported_minutes': 420}}}) + '\n'
             + json.dumps({'id': 'OLD-2', 'measured': {'span_minutes': 30, 'coordinator': {'self_reported_minutes': None}}}) + '\n')
         # A two-day wall-clock span in history must not drive the estimate.
         records.save_history(self.root, {'id': 'OLD-1', 'timestamp': '2026-01-01T00:00:00+00:00', 'outcome': 'completed',
                                          'summary': 'old', 'closed_at': '2026-01-03T00:00:00+00:00'})
         records.save_history(self.root, {'id': start['id'], 'timestamp': 'x', 'outcome': 'partial', 'summary': 'other'})
         facts = notifications.loop_status(self.root)
-        self.assertIn(facts['eta'], ('~1 h 30 min', '~1 h 29 min'))  # upper median 90 min, less the seconds elapsed
+        # 420 recorded working minutes, not the 2805-minute span that included a two-day pause.
+        self.assertIn(facts['eta'], ('~7 h 00 min', '~6 h 59 min'))
 
 
 class LoopEndTextTests(LoopFixture):
