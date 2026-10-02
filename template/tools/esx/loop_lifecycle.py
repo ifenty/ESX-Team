@@ -69,6 +69,8 @@ def rebind_receipt(root):
     reissued = False
     if recorded != expected:
         owner = (done.get('verification') or {}).get('final_owner') or (done.get('workflow') or {}).get('final_verify_owner')
+        require(owner, 'the closeout names no final verification owner (verification.final_owner or '
+                       'workflow.final_verify_owner); it is needed to rebind the receipt')
         try:
             final_verification.rebind(root, done, owner)
         except ValueError as exc:

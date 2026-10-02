@@ -227,6 +227,17 @@ class RebindReceiptTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'pending preparation'):
                 loop_lifecycle.rebind_receipt(self.root)
 
+    def test_rebind_names_a_missing_final_owner(self):
+        done = self.fixture.complete()
+        done['scope_decisions'] = [{'classification': 'separate_new', 'issue_id': 'SAMPLE-002', 'status': 'open',
+                                    'evidence_refs': ['x']}]
+        done['verification'].pop('final_owner', None)
+        done['workflow'] = dict(done['workflow'])
+        done['workflow'].pop('final_verify_owner', None)
+        self.fixture.save_done(done)
+        with self.assertRaisesRegex(ValueError, 'names no final verification owner'):
+            loop_lifecycle.rebind_receipt(self.root)
+
     def test_rebind_refuses_when_no_receipt_exists(self):
         self.fixture.complete()
         (self.root / project.STATE / 'final-verification' / 'current.json').unlink()
