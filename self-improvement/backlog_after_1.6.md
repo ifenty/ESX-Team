@@ -31,3 +31,15 @@ work and deferred. Each item names the measured problem it answers.
 - **Slack receipt links** are not checked against the channel and timestamp they claim.
 - **Advance guard threshold.** 6 advances within 120 s would not have caught a measured
   incident of 5 in 87 s; 4 within 120 s would, at some risk of pausing a healthy loop.
+
+## From the 1.6.2 acceptance run
+
+- **Stale-figure sweep is noisy for bare small integers.** A figure such as `46` matched
+  namelist values and test constants, not the count it was meant to find. Warn when a
+  figure is a number shorter than three digits with no context, say in the documentation
+  and the brief rule that figures are written as they appear in prose ("46 rules",
+  "26-41 m"), and consider searching only prose files and comments by default.
+- **`provider_limit` is stored only on a failed turn.** A limit that surfaced as an
+  incomplete turn would be missed; store it for any turn that did not complete.
+- **A live pause and resume under a running loop** was covered by unit tests only in the
+  acceptance run; exercise it at the next real loop on each project.
