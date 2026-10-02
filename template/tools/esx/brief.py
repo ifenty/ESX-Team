@@ -122,6 +122,30 @@ def sweep_section(root, symbols, limit=SWEEP_LIMIT, lines_per_file=SWEEP_LINES_P
     return '\n'.join(out)
 
 
+WORKING_RULES = {
+    False: '# Working rules\n'
+           '- A comparison against an existing quantity calls or cites the function and line that computes it. '
+           'Do not re-derive the formula: a re-derivation that differs by a factor passes a loose assertion and '
+           'puts wrong figures in the record.\n'
+           '- A characterization test asserts the measured figure with a stated margin, not only a loose bound '
+           'that would also hold for a wrong figure.\n'
+           '- After your last edit, search the repository for statements your change makes stale, including in '
+           'files you did not otherwise touch (READMEs, contracts, validation reports), and correct them.\n'
+           '- You draft and seal the documentation plan from the live source, reusing the last sealed report with '
+           '`doc_contract.py draft --previous`, and report the sealed reference. Give each changed target its own '
+           'judgment; do not copy one reason across targets.\n'
+           '- Write each finished unit to disk before starting the next, so an interrupted turn loses one unit.',
+    True: '# Working rules\n'
+          '- Review against the supported input classes stated in the design. A real defect in a supported class '
+          'is a must_fix. A real case outside them is a note with your evidence: the coordinator records it as a '
+          'documented limit or a separate issue, and it does not block this one.\n'
+          '- Check every reference quantity against the source line that computes it, not against the '
+          'implementer\'s description of it.\n'
+          '- Search for statements the change makes stale in files outside the change set; a stale statement the '
+          'change caused is a must_fix.\n'
+          '- Run your orientation command last, after your reading and checks.'}
+
+
 def build(root, role, issue, design, question=None, packet=None, correction_round=0, sweep_symbols=()):
     start = json_file(root, STATE + '/issue-start.json')
     require(start['id'] == issue, 'brief must name the active issue')
@@ -162,8 +186,12 @@ def build(root, role, issue, design, question=None, packet=None, correction_roun
         'is how the expectation gets corrected.',
         '# Own orientation\n' + shlex.join(command) + '\nUse the returned orientation receipt, not the baseline.',
         reseal,
+        WORKING_RULES[role == 'richard'],
         '# Evidence\nUse tools/esx/project.py signature for candidate_signature. Execute independent checks through '
-        'tools/esx/verify.py --suite focused --owner DISPATCHER_AGENT_ID --fresh and cite its returned evidence. '
+        'tools/esx/verify.py --suite focused --owner YOUR_RUNTIME_AGENT_ID --fresh and cite its returned evidence. '
+        'Your runtime agent id is the agent_id in your dispatcher assignment (retained session) or the id stated '
+        'in your session-start context (native subagent); `' + shlex.join([sys.executable, 'tools/esx/hooks.py',
+        'whoami', '--role', role]) + '` prints it. Evidence sealed under any other owner is refused at closeout. '
         'Richard confirms the exact sealed documentation reference in this packet: ' + json.dumps(packet),
         *([current_seal(packet)] if role == 'richard' else []),
         '# Report\nKeep actual identity, evidence and limitations. Required values cannot be invented.\n```json\n'

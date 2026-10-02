@@ -26,9 +26,19 @@ python3 tools/esx/loop_gate.py --next
 The draft is `schema_version` 3; accepted schema-2 records stay valid and a
 schema-2 submission is still accepted unchanged (it may not carry confirmations).
 Describe each problem (a defect) using category, summary, evidence and integer
-minutes_lost. Each solution indexes a problem and either files it, defers it with
-a substantive reason and open process owner, or cites a closed implemented
-process issue. Unpublished fixes stay open with an Implementation-Reference. A
+minutes_lost. Each solution indexes a problem and has one of four actions; the
+draft's `guide` object lists the same vocabulary:
+
+- `filed`: needs `issue`, an open process-ledger id.
+- `deferred`: needs `issue`, an open process-ledger id, and a `reason` of at least 40 characters.
+- `fixed`: needs `reference` (the commit, released version or file that fixed it) and a `reason`
+  of at least 40 characters. Use it for a problem resolved inside the issue itself or already
+  released upstream, where no process owner has anything left to do. It does not satisfy a
+  recurring category, which still needs an open owner or a verified fix.
+- `implemented`: needs `issue`, a closed process-ledger id, `changelog` equal to its
+  Implementation-Commit, `effectiveness` (`landed` or `verified`) and an `expected_effect`.
+
+Unpublished fixes stay open with an Implementation-Reference. A
 verified-effective claim additionally needs hashed, comparable before/after
 measurements showing the stated improvement. Missing cost observations are
 explicitly unknown.

@@ -87,6 +87,21 @@ def persist_debt(root, reason):
     return debt
 
 
+SOLUTION_GUIDE = {
+    'problem': '{"category": short label, "summary": >=20 chars, "evidence": >=20 chars, "minutes_lost": integer >= 0}',
+    'solution': 'one per problem: {"problem": index into problems, "action": ..., plus the fields that action needs}',
+    'actions': 'solution actions are: "filed" (needs "issue": an OPEN process-ledger id); '
+               '"deferred" (needs "issue": an OPEN process-ledger id and "reason" >= 40 chars); '
+               '"fixed" (needs "reference": the commit, released version or file that fixed it, and "reason" >= 40 '
+               'chars; for a problem resolved inside the issue or already released upstream); '
+               '"implemented" (needs "issue": a CLOSED process-ledger id, "changelog" equal to its '
+               'Implementation-Commit, "effectiveness": landed|verified and "expected_effect" >= 20 chars)',
+    'recurrence': 'a problem category seen in the last three retrospectives needs an open owner or a verified fix; '
+                  '"fixed" alone does not satisfy it',
+    'confirmation': '{"category", "summary", "evidence"}: something that worked and should be kept',
+    'note': 'delete this "guide" object or leave it; it is ignored at --check-retro'}
+
+
 def draft(root):
     state = Path(root) / accounting.STATE
     history = accounting.rows(state / 'loop_history.jsonl')
@@ -102,7 +117,7 @@ def draft(root):
             'closes_timestamp': last['timestamp'], 'timestamp': accounting.now().split('.')[0] + 'Z',
             'accounting': {'path': str(path.relative_to(root)), 'sha256': digest},
             'measured': accounting.measured(report), 'problems': [], 'solutions': [],
-            'confirmations': [], 'carry_forward': [], 'no_problem_reason': ''}
+            'confirmations': [], 'carry_forward': [], 'no_problem_reason': '', 'guide': SOLUTION_GUIDE}
 
 
 def validate_measurements(root, record, last):
@@ -197,6 +212,7 @@ def accept(root, record):
     last = history[-1]
     require(isinstance(record, dict) and record.get('id') == last['id']
             and record.get('closes_timestamp') == last['timestamp'], 'retrospective must match the last closeout')
+    record = {key: value for key, value in record.items() if key != 'guide'}
     errors = validate_measurements(root, record, last)
     errors += si.validate(Path(root))
     require(not errors, '; '.join(errors))
@@ -220,7 +236,8 @@ def accept(root, record):
         action = solution.get('action')
         owner = solution.get('issue') or solution.get('reference')
         if action in ('filed', 'deferred'):
-            require(owner in opened, 'filed/deferred solution needs an open process owner')
+            require(owner in opened, f'{action} solution needs "issue": an open process-ledger id '
+                    '(devel-loop/self-improvement/open-ESX-team-issues.md); a problem already resolved uses action "fixed"')
             if action == 'deferred':
                 require(len(str(solution.get('reason', solution.get('reference', '')))) >= 40, 'substantive deferral reason required')
         elif action == 'implemented':
@@ -233,8 +250,15 @@ def accept(root, record):
             if solution['effectiveness'] == 'verified':
                 errors = effectiveness_errors(root, solution.get('measurement'))
                 require(not errors, '; '.join(errors))
+        elif action == 'fixed':
+            # Resolved inside the issue itself, or already released upstream: nothing
+            # is left for a process owner to do, so cite what fixed it.
+            require(isinstance(solution.get('reference'), str) and solution['reference'].strip()
+                    and len(str(solution.get('reason', ''))) >= 40,
+                    'fixed solution needs "reference" (the commit, released version or file that fixed it) '
+                    'and a "reason" of at least 40 characters')
         else:
-            raise ValueError('unknown solution action')
+            raise ValueError('unknown solution action ' + repr(action) + '; ' + SOLUTION_GUIDE['actions'])
     require(covered == set(range(len(problems))), 'each problem needs a disposition')
     errors, confirmed = confirmation_errors(record)
     require(not errors, '; '.join(errors))

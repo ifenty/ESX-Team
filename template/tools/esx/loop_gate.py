@@ -337,6 +337,28 @@ class Gate:
                     f'the same footer field, discarded review identities, or a recurring dispatch failure mode.')
         return None
 
+    def rejection_streak(self, start):
+        """Correction rounds of the active iteration whose latest review rejected, trailing.
+
+        Two in a row is the point at which another correction is more likely to
+        repeat the dispute than to settle it, whatever the individual findings were.
+        """
+        verdicts = {}
+        for record in json_lines(local(self.root, f'{STATE}/dispatch_log.jsonl')):
+            footer = record.get('footer') if isinstance(record.get('footer'), dict) else {}
+            if (record.get('agent_type') != 'richard' or footer.get('issue_id') != start['id']
+                    or footer.get('iteration_timestamp') != start['timestamp']):
+                continue
+            number = footer.get('correction_round')
+            if type(number) is int and footer.get('verdict'):
+                verdicts[number] = footer['verdict'] == 'REJECT' or bool(footer.get('must_fix'))
+        streak = []
+        for number in sorted(verdicts, reverse=True):
+            if not verdicts[number]:
+                break
+            streak.append(number)
+        return sorted(streak)
+
     def cancel_pending(self):
         """The owner's reason when the loop is to end after the current iteration, else None."""
         loop = local(self.root, '.claude/esx-loop.local.md')
@@ -378,6 +400,12 @@ class Gate:
                     print(f"NEXT: run --check-start for {start['id']} now, before any dispatch or edit; "
                           'the iteration has no start receipt')
                     return 0
+                streak = self.rejection_streak(start)
+                if len(streak) >= 2:
+                    print(f"CHECKPOINT: review rejected {start['id']} in rounds {', '.join(map(str, streak))} in a row. "
+                          'Before another correction, hold a diagnosis checkpoint with the same agents: reproduce '
+                          'the dispute, name the mistaken or unproven premise, and agree the next bounded change '
+                          'and its acceptance (ARCHITECT.md). Closeout requires it after two unsuccessful corrections.')
                 print(f"NEXT: finish active iteration {start['id']} and run --check-done")
                 return 0
         due = team_retrospective.pending(self.root)

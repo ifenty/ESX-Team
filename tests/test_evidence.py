@@ -643,11 +643,41 @@ class BaselineTests(DeploymentFixture):
         self.assertEqual(rows['tests/new_oracle.py::<module>']['action'], '')
         self.assertEqual(draft['map_delta']['status'], '')
 
-    def test_undeclared_dependencies_conservatively_require_fresh_review(self):
+    def test_undeclared_dependencies_are_bound_to_the_target_file_and_cited_references(self):
+        """A change in another file keeps the judgment; one in the same file does not."""
         base = dc.baseline(self.root, self.issue)
         report = dc.seal(self.root, self.changed_plan(base, dependencies=False))
         self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
         draft = dc.draft(self.root, self.issue, base, report)
+        rows = {r['target']: r for r in draft['dispositions']}
+        self.assertEqual(rows['src/model.py::step']['reused_from'], report)
+        self.assertEqual(rows['tests/new_oracle.py::<module>']['action'], '')
+        self.assertEqual(draft['reused'], sum(bool(r.get('reused_from')) for r in draft['dispositions']))
+        self.assertGreaterEqual(draft['reused'], 1)
+        # The carried judgments seal again against the new candidate.
+        rows['tests/new_oracle.py::<module>'].update(
+            action='reviewed_unchanged', references=['tests/new_oracle.py::<module>'],
+            reason='The added oracle module is described accurately by its own module documentation string.')
+        draft['map_delta'] = {'status': 'MAP-OK', 'references': ['docs/code_map.md#pipeline'],
+                              'reason': 'The mapped source and its scientific acceptance routes remain accurate for this local scalar edit.'}
+        dc.seal(self.root, draft)
+        # An edit to a sibling definition in the same file forces a fresh look at the whole file.
+        self.model.write_text(self.model.read_text().replace('return step(x)', 'return step(x)+1'))
+        again = dc.draft(self.root, self.issue, base, report)
+        self.assertTrue(all(row['action'] == '' for row in again['dispositions']
+                            if row['target'].startswith('src/model.py')))
+
+    def test_report_sealed_before_file_state_was_measured_keeps_the_whole_inventory_rule(self):
+        base = dc.baseline(self.root, self.issue)
+        plan = self.changed_plan(base, dependencies=False)
+        ref = dc.seal(self.root, plan)
+        old = dc.load(self.root, ref, 'documentation', self.issue)
+        for row in old['dispositions']:
+            row['judgment_inputs'].pop('file_sha256')
+        legacy = dc.save(self.root, old)
+        dc.validate_report(self.root, dc.load(self.root, legacy, 'documentation', self.issue), self.issue, base)
+        self.write('tests/new_oracle.py', b'"""Additional independent test oracle."""\n')
+        draft = dc.draft(self.root, self.issue, base, legacy)
         self.assertTrue(all(row['action'] == '' for row in draft['dispositions']))
 
     def test_module_context_and_referenced_dependency_invalidate_reuse(self):
