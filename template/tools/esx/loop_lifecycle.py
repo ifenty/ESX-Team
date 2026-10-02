@@ -43,10 +43,15 @@ def _prepare_done(root, start, packet, verification, metadata):
 
 
 def rebind_receipt(root):
-    """Point a prepared closeout at current.json after a successful re-run.
+    """Bind the passing final execution to the prepared closeout and cite it there.
 
-    Refuses unless the current receipt passed for this closeout's own review
-    signature; the rebound record must then pass the gate's receipt check.
+    One command for the usual case: the receipt was taken from the review packet,
+    and the closeout fields that review_signature covers (scope_decisions,
+    agent_continuity, maintenance and the others) were filled afterwards. When
+    current.json was issued for a different review signature, a receipt for the
+    closeout's own signature is issued from the unchanged execution, without
+    running the suite, and issue-done.json is pointed at it. Refuses when the
+    execution cannot be reused; the rebound record must pass the receipt check.
     """
     import final_verification
     path = root / STATE / 'issue-done.json'
@@ -61,12 +66,25 @@ def rebind_receipt(root):
     require(digest(record) == ref['sha256'], 'current final verification receipt was modified')
     require(record.get('status') == 'PASS', 'current final verification receipt did not pass')
     recorded, expected = (record.get('identity') or {}).get('review_signature'), final_verification.review_signature(done)
-    require(recorded == expected, f'current receipt review_signature {recorded} does not match the closeout record {expected}; '
-                                  're-run final_verification.py run with a packet matching the closeout')
+    reissued = False
+    if recorded != expected:
+        owner = (done.get('verification') or {}).get('final_owner') or (done.get('workflow') or {}).get('final_verify_owner')
+        require(owner, 'the closeout names no final verification owner (verification.final_owner or '
+                       'workflow.final_verify_owner); it is needed to rebind the receipt')
+        try:
+            final_verification.rebind(root, done, owner)
+        except ValueError as exc:
+            raise ValueError(f'current receipt review_signature {recorded} does not match the closeout record {expected}, '
+                             f'and the execution could not be rebound to the closeout: {exc}') from exc
+        ref = json_file(root, STATE + '/final-verification/current.json')
+        record = json_file(root, ref['path'])
+        require((record.get('identity') or {}).get('review_signature') == expected, 'rebound receipt does not match the closeout record')
+        reissued = True
     rebound = dict(done, verification=dict(done['verification'], receipt=ref, scientific=record['scientific']))
     final_verification.check_receipt(root, rebound)
     atomic_json(path, rebound)
-    return {'status': 'rebound', 'path': STATE + '/issue-done.json', 'previous': old, 'receipt': ref, 'accepted': False}
+    return {'status': 'rebound', 'path': STATE + '/issue-done.json', 'previous': old, 'receipt': ref,
+            'reissued': reissued, 'executed': False, 'accepted': False}
 
 
 def main():
@@ -80,7 +98,7 @@ def main():
     for name in ('issue','closure','expected-sha256'):
         promote.add_argument('--'+name,required=True)
     promote.add_argument('--apply',action='store_true')
-    sub.add_parser('rebind-receipt',help='re-point issue-done.json at final-verification/current.json')
+    sub.add_parser('rebind-receipt',help='bind the passing execution to issue-done.json (no suite run) and cite the receipt there')
     a=p.parse_args();root=a.root.resolve()
     try:
         if a.command=='promote':

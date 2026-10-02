@@ -188,6 +188,56 @@ def check_receipt(root, done):
     return record
 
 
+def _reissue(root, review, owner, identity, index):
+    """Issue a receipt for ``review`` from the current receipt's unchanged execution.
+
+    Never executes the suite. Raises when the source, configuration, toolchain,
+    owner or commands of the earlier execution no longer match.
+    """
+    old_ref = json.loads(index.read_text())
+    require(old_ref.get('path') == f"{STATE}/final-verification/{old_ref.get('sha256')}.json", 'invalid prior receipt path')
+    old = json_file(root, old_ref['path'])
+    require(digest(old) == old_ref['sha256'] and old.get('status') == 'PASS', 'invalid prior receipt')
+    require(all(old['identity'].get(k) == identity.get(k) for k in
+        ('issue_id', 'owner', 'scientific_fingerprint')), 'execution dependencies changed')
+    evidence = verify.load_evidence(root, old['scientific'])
+    require(evidence['suite'] == 'scientific' and evidence['owner'] == owner, 'wrong execution owner')
+    require(evidence['commands'] == config(root)['verification']['scientific'], 'commands changed')
+    require(identity == ready(root, review, owner), 'acceptance changed during reuse')
+    record = {'version': 1, 'status': 'PASS', 'identity': identity,
+              'scientific': old['scientific'], 'execution_receipt': old_ref,
+              'executed': False, 'finished_at': now()}
+    sha = digest(record)
+    ref = {'path': f'{STATE}/final-verification/{sha}.json', 'sha256': sha}
+    atomic_json(local(root, ref['path']), record)
+    atomic_json(index, ref)
+    atomic_json(local(root, f'{STATE}/final-verification/latest.json'), ref)
+    return {'status': 'REUSED EVIDENCE', 'receipt': ref, 'scientific': old['scientific']}
+
+
+def rebind(root, review, owner):
+    """Bind the current passing execution to ``review`` without running the suite.
+
+    ``review`` is normally the prepared closeout (issue-done.json): the review
+    packet does not carry agent_continuity, scope_decisions or the other
+    closeout fields that review_signature covers, so a receipt taken from the
+    packet goes stale as soon as those fields are filled. Raises ValueError
+    when the execution cannot be reused; a fresh `run` is then required.
+    """
+    root = Path(root).resolve()
+    lock = local(root, f'{STATE}/final-verification/owner.lock')
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        index = local(root, f'{STATE}/final-verification/current.json')
+        require(index.exists(), 'no current final verification receipt to rebind; run final_verification.py run first')
+        identity = ready(root, review, owner)
+        try:
+            return _reissue(root, review, owner, identity, index)
+        except (OSError, KeyError, TypeError) as exc:
+            raise ValueError('cannot reuse the current execution: ' + str(exc)) from exc
+
+
 def run(root, review, owner, fresh=False):
     """Serialize final runs and rebind unchanged execution to current acceptance."""
     root = Path(root).resolve()
@@ -208,25 +258,7 @@ def run(root, review, owner, fresh=False):
             # Separate fresh acceptance from the immutable scientific execution.
             # Reuse requires current approvals and matching source/config/toolchain.
             try:
-                old_ref = json.loads(index.read_text())
-                require(old_ref.get('path') == f"{STATE}/final-verification/{old_ref.get('sha256')}.json", 'invalid prior receipt path')
-                old = json_file(root, old_ref['path'])
-                require(digest(old) == old_ref['sha256'] and old.get('status') == 'PASS', 'invalid prior receipt')
-                require(all(old['identity'].get(k) == identity.get(k) for k in
-                    ('issue_id', 'owner', 'scientific_fingerprint')), 'execution dependencies changed')
-                evidence = verify.load_evidence(root, old['scientific'])
-                require(evidence['suite'] == 'scientific' and evidence['owner'] == owner, 'wrong execution owner')
-                require(evidence['commands'] == config(root)['verification']['scientific'], 'commands changed')
-                require(identity == ready(root, review, owner), 'acceptance changed during reuse')
-                record = {'version': 1, 'status': 'PASS', 'identity': identity,
-                          'scientific': old['scientific'], 'execution_receipt': old_ref,
-                          'executed': False, 'finished_at': now()}
-                sha = digest(record)
-                ref = {'path': f'{STATE}/final-verification/{sha}.json', 'sha256': sha}
-                atomic_json(local(root, ref['path']), record)
-                atomic_json(index, ref)
-                atomic_json(local(root, f'{STATE}/final-verification/latest.json'), ref)
-                return {'status': 'REUSED EVIDENCE', 'receipt': ref, 'scientific': old['scientific']}
+                return _reissue(root, review, owner, identity, index)
             except (ValueError, OSError, KeyError, TypeError):
                 pass
         index.unlink(missing_ok=True)

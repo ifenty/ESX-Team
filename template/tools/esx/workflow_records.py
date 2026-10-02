@@ -98,9 +98,14 @@ issue and their own correction round. New selections must follow its start time.
         require(record.get('status') in ('incomplete', 'failed', 'running'),
                 f'{event}: runtime completion is incomplete or failed')
         round_number = selection.get('correction_round')
-        require(type(round_number) is int and round_number >= 0
-                and type(record.get('correction_round')) is int
-                and record['correction_round'] == round_number,
+        # A turn closed by `agent_runtime.py recover` never reported a round: the
+        # dispatcher died before the role answered. It is still this issue's own
+        # failed attempt and may be selected with its round absent on both sides.
+        orphan = bool(record.get('recovered')) and record.get('correction_round') is None
+        require((orphan and round_number is None)
+                or (type(round_number) is int and round_number >= 0
+                    and type(record.get('correction_round')) is int
+                    and record['correction_round'] == round_number),
                 f'{event}: failed-turn correction round mismatch or absent')
         require(record.get('issue_id') == start.get('id'),
                 f'{event}: failed-turn issue identity mismatch')
@@ -176,6 +181,25 @@ iterations. It supplies no fresh outcome, approval, verification, or delivery cl
                  communication={'status': 'pending', 'detail': 'Arch must record the authorized communication disposition.'},
                  next_step='', verification={'status': 'pending',
                     'final_owner': (start.get('workflow') or {}).get('final_verify_owner')})
+    shapes = {
+        'outcome': 'completed | partial | blocked',
+        'tests_status': 'short text, e.g. passed',
+        'scope_decisions[]': {'classification': 'introduced_regression | dependency | separate_existing | separate_new | unknown',
+                              'status': 'resolved | open | blocked', 'issue_id': 'required for separate_existing/separate_new',
+                              'evidence_refs': ['project-relative path string, not a {path, sha256} object'], 'reason': 'text'},
+        'milestone': {'logged': False, 'reason': 'text'},
+        'milestone (logged)': 'the {path, heading, sha256} printed by workflow_records.py milestone, with logged true',
+        'git': {'committed': True, 'sha': 'commit reachable from HEAD'},
+        'git (uncommitted)': {'committed': False, 'reason': 'at least 20 characters'},
+        'communication': {'status': 'sent | pending | unavailable | unauthorized | disabled', 'detail': 'text',
+                          'receipt': 'required when sent'},
+        'verification.structural': 'the {path, sha256} printed as "evidence" by verify.py --suite structural',
+        'verification.scientific / verification.receipt': 'the two references printed by final_verification.py run; '
+                                                         'after filling this record run loop_lifecycle.py rebind-receipt',
+        'agent_continuity.replacements[]': {'role': 'bob | richard', 'old_id': 'runtime id', 'new_id': 'runtime id',
+                                            'reason': 'text', 'evidence_refs': ['project-relative path string']},
+        'preparation': 'delete this whole object once every pending item is decided',
+    }
     pending = ['outcome, summary, tests_status and issue disposition',
                'scope decisions and remaining blockers',
                'milestone, lesson and rule decisions (defaulted to none; override if there is a real one)',
@@ -256,7 +280,7 @@ iterations. It supplies no fresh outcome, approval, verification, or delivery cl
                            f"{entry['new_id'] or '(choose new_id)'} needs reason and evidence_refs "
                            f"(or select a later completed continuation of the same agent instead)")
     draft['preparation'] = {'status': 'draft', 'start_timestamp': start['timestamp'],
-                            'imported_event_ids': list(by_event), 'pending': pending}
+                            'imported_event_ids': list(by_event), 'pending': pending, 'shapes': shapes}
     return draft
 
 
