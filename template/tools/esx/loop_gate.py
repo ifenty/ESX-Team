@@ -96,11 +96,19 @@ class Gate:
         atomic_json(state, start)
         return start
 
-    def check_start(self):
+    def check_start(self, late_reason=None):
         with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'orientation', role='arch'):
-            return self._check_start()
+            return self._check_start(late_reason)
 
-    def _check_start(self):
+    def _check_start(self, late_reason=None):
+        """Validate the prepared start and save its receipt.
+
+        The check belongs before any dispatch or edit: it proves the coordinator's
+        orientation matched the tree the work started from. Run after work has
+        changed the oriented targets, that comparison can no longer be made, so a
+        late check needs ``late_reason``. It validates the orientation as recorded
+        at --prepare and marks the receipt late, which closeout then reports.
+        """
         team_retrospective.require_clear(self.root)
         team_retrospective.require_followup(self.root)
         start = self.read('issue-start.json')
@@ -109,12 +117,29 @@ class Gate:
         self.check_diagnosis(start, json_lines(local(self.root, f'{STATE}/loop_history.jsonl')))
         errors = workflow.validate_workflow(start['workflow']) + maintenance.check_start(self.root, start)
         require(not errors, '; '.join(errors))
-        maintenance.validate_orientation(self.root, start['maintenance']['orientation'], start['id'],
-                                         start['maintenance']['baseline'], 'arch')
+        if late_reason is not None:
+            require(isinstance(late_reason, str) and len(late_reason.strip()) >= 40,
+                    'a late --check-start needs --late-reason of at least 40 characters saying why it was not run '
+                    'before the work began')
+            maintenance.validate_orientation(self.root, start['maintenance']['orientation'], start['id'],
+                                             start['maintenance']['baseline'], 'arch', fresh=False)
+        else:
+            try:
+                maintenance.validate_orientation(self.root, start['maintenance']['orientation'], start['id'],
+                                                 start['maintenance']['baseline'], 'arch')
+            except ValueError as exc:
+                if not str(exc).startswith('stale arch orientation'):
+                    raise
+                raise ValueError(
+                    'the start orientation no longer matches the working tree. If no work on this issue has begun, '
+                    'run --prepare again. If work has already changed these targets, --check-start was skipped: '
+                    'rerun it as `loop_gate.py --check-start --late-reason "<why it was not run before the work '
+                    'began>"`, which validates the orientation as recorded at --prepare and marks the receipt late. '
+                    'Details: ' + str(exc)) from exc
         announcement(start)
         notifications.synchronize(self.root)
         require(not notifications.pending(self.root), notifications.notice(self.root) or 'pending communication')
-        loop_iteration.record_start(self.root, start)
+        loop_iteration.record_start(self.root, start, late=late_reason.strip() if late_reason else None)
         return start
 
     def check_diagnosis(self, start, history):
@@ -312,10 +337,29 @@ class Gate:
                     f'the same footer field, discarded review identities, or a recurring dispatch failure mode.')
         return None
 
+    def cancel_pending(self):
+        """The owner's reason when the loop is to end after the current iteration, else None."""
+        loop = local(self.root, '.claude/esx-loop.local.md')
+        if not loop.exists():
+            return None
+        import ralph_stop
+        try:
+            return ralph_stop.cancel_request(ralph_stop.parse_state(loop.read_text()))
+        except (ValueError, UnicodeError):
+            return None
+
     def next(self):
         for notice in team_retrospective.rule_notices(self.root):
             print(notice)
         audit.check(self.root, self.ledger_overrides)
+        try:
+            facts = notifications.loop_status(self.root)
+        except (ValueError, OSError, KeyError, TypeError):
+            facts = None
+        if facts:
+            # For the owner's screen, not the chat channel: relay it when a long
+            # wait or run means they have seen nothing for a while.
+            print('STATUS: ' + facts['text'])
         opened, closed, _ = validate_records(self.root, self.ledger_overrides)
         notifications.synchronize(self.root)
         message = notifications.notice(self.root)
@@ -327,11 +371,24 @@ class Gate:
         if start_path.exists():
             start = json.loads(start_path.read_text())
             if not history or (history[-1]['id'], history[-1]['timestamp']) != (start['id'], start['timestamp']):
+                if start.get('state_version', 1) >= 2 and not loop_iteration.start_status(self.root, start)['validated']:
+                    # Closeout refuses an iteration without this receipt, and the
+                    # check cannot be made honestly once the work has changed the
+                    # oriented targets (TEAM-LOOP-CHECK-START-RECOVERY-001).
+                    print(f"NEXT: run --check-start for {start['id']} now, before any dispatch or edit; "
+                          'the iteration has no start receipt')
+                    return 0
                 print(f"NEXT: finish active iteration {start['id']} and run --check-done")
                 return 0
         due = team_retrospective.pending(self.root)
         if due:
             print('NEXT: RETROSPECTIVE for ' + due['id'] + '; run --draft-retro, review, then --check-retro')
+            return 0
+        cancelled = self.cancel_pending()
+        if cancelled is not None:
+            print(f'NEXT: the owner cancelled the loop ({cancelled}) and the iteration that was active is finished. '
+                  'Tell the owner what was completed and what remains open, then end the turn. Do not select an '
+                  'issue, start process follow-up or dispatch agents; the loop ends when this turn does.')
             return 0
         followup = team_retrospective.followup_due(self.root)
         if followup:
@@ -395,6 +452,8 @@ def main():
     parser.add_argument('--use')
     parser.add_argument('--diagnosis', type=json.loads, help='agreed diagnosis checkpoint JSON after repeated failed corrections')
     parser.add_argument('--done', help='--closeout-doctor: draft closeout to inspect instead of loop_state/issue-done.json')
+    parser.add_argument('--late-reason', help='--check-start: why the check was not run before work on the issue began; '
+                                              'validates the orientation as recorded at --prepare and marks the receipt late')
     args = parser.parse_args()
     try:
         gate = Gate(args.root)
@@ -422,7 +481,7 @@ def main():
             result = gate.prepare(args.prepare, args.kind, args.risk, args.owner, args.priority,
                                   args.map, args.target, args.doc, args.use, args.diagnosis, args.budget_kind)
         elif args.check_start:
-            result = gate.check_start()
+            result = gate.check_start(args.late_reason)
         else:
             result = gate.check_done()
             atomic_json(local(gate.root, f'{STATE}/issue-done.json'), result)

@@ -174,6 +174,27 @@ A delivery failure preserves scientific progress and an explicit error record;
 leaving events pending does not satisfy the communication duty.
 Record commit and communication in durable iteration history before continuing.
 
+## Waiting and keeping the owner informed
+
+Waiting on a role is not work, and the owner should never have to ask whether the
+loop is alive.
+
+- A background Agent-tool subagent re-invokes this session when it reports. End
+  the turn; the Stop hook allows it quietly and consumes no iteration. Before
+  ending it, arm `python3 tools/esx/loop_control.py wake --minutes 15` as a
+  background command, so the session is woken at least every 15 minutes.
+- A retained CLI turn sends no completion event. Wait for it inside the turn
+  with `python3 tools/esx/agent_runtime.py wait --timeout 840`, repeated while
+  it reports `running`.
+- Each time you wake or a wait returns, print `python3 tools/esx/loop_control.py
+  status --line` (also the `STATUS:` line of `--next`) to the owner's screen.
+  This status goes to the screen only, never to the chat channel.
+- The chat channel gets one short heartbeat per `communication.heartbeat_minutes`
+  (queued by the outbox like any other event) in place of a post per iteration.
+- `/esx-loop cancel` stops the next iteration from starting. It never stops the
+  iteration in progress: keep the dispatched agents running and finish the issue
+  through its retrospective. Only `abort` abandons work.
+
 ## Prepare review and recovery evidence
 
 Use `tools/esx/workflow_records.py review-packet` and `readiness` according to
@@ -188,8 +209,11 @@ scientific execution dependencies still match.
 Follow [bounded operations](../../devel-loop/team_operations.md) and
 [measured self-improvement](../../devel-loop/self-improvement/README.md).
 Prefer generated bounded briefs and the smallest applicable allocation. An active
-iteration needs a successful --check-start receipt before retained dispatch or
-closure. Every closeout, including partial and blocked, needs a measured
+iteration needs a successful --check-start receipt before any dispatch, retained
+or native, and before closure: run it straight after --prepare and the start
+announcement, and `--next` asks for it while it is missing. A check skipped until
+after the work began can only be taken with `--late-reason`, which marks the
+receipt late. Every closeout, including partial and blocked, needs a measured
 retrospective before more work. Resolve recurring process owners or record a
 bounded deferral. Report observed USD, unknown charges and coordinator coverage;
 never infer zero spend from absent provider data. Retain versionable evidence.

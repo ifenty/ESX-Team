@@ -157,34 +157,99 @@ def loop_lock(root):
 
 MAX_DISPATCH_WAITS = 3
 NATIVE_STALE_SECONDS = 6 * 3600
+MAX_ADVANCES_PER_MINUTE = 12
 
 
-def native_in_flight(root, session_id):
-    """True when this session launched an Agent-tool subagent that has not stopped.
+def clock():
+    """Wall-clock seconds; a seam for tests of the advance-rate guard."""
+    import time as _time
+    return _time.time()
+
+
+def set_field(header, key, value):
+    """Return the frontmatter with one scalar field set (value None removes it)."""
+    header = re.sub(r'(?m)^' + re.escape(key) + r':.*\n?', '', header).rstrip('\n')
+    return header if value is None else header + '\n' + key + ': ' + str(value)
+
+
+def cancel_request(parsed):
+    """The owner's pending cancellation reason, or None (TEAM-LOOP-CANCEL-DRAIN-001)."""
+    fields = parsed['header_fields']
+    if fields.get('stop_after_current') != 'true':
+        return None
+    raw = fields.get('cancel_reason', '')
+    try:
+        reason = json.loads(raw) if raw.startswith('"') else raw
+    except ValueError:
+        reason = raw
+    return reason if isinstance(reason, str) and reason.strip() else 'cancelled by the project owner'
+
+
+def work_in_progress(root):
+    """The issue whose iteration (or owed retrospective) is unfinished, else None.
+
+    A cancellation never interrupts this work: the active iteration runs through
+    review, closeout and its retrospective, and only then does the loop end.
+    """
+    root = Path(root)
+    start_path = root / 'devel-loop/loop_state/issue-start.json'
+    history_path = root / 'devel-loop/loop_state/loop_history.jsonl'
+    try:
+        start = json.loads(start_path.read_text()) if start_path.is_file() else None
+        rows = [json.loads(line) for line in history_path.read_text().splitlines() if line.strip()] \
+            if history_path.is_file() else []
+    except (OSError, ValueError):
+        return None
+    if isinstance(start, dict) and start.get('id'):
+        last = rows[-1] if rows else {}
+        if (last.get('id'), last.get('timestamp')) != (start.get('id'), start.get('timestamp')):
+            return start['id']
+    if (root / 'esx/project.json').exists():
+        try:
+            import team_retrospective
+            due = team_retrospective.pending(root)
+            if due:
+                return due['id']
+        except (ValueError, OSError, KeyError, TypeError):
+            return None
+    return None
+
+
+def native_running(root, session_id):
+    """Agent-tool subagents this session launched that have not stopped.
 
     Markers come from the SubagentStart hook and are removed by SubagentStop. A
     marker older than NATIVE_STALE_SECONDS (a lost stop event) is ignored.
     """
     folder = Path(root) / 'devel-loop/loop_state/native_inflight'
     if not session_id or not folder.is_dir():
-        return False
-    import time as _time
-    for marker in folder.glob('*.json'):
+        return []
+    running = []
+    for marker in sorted(folder.glob('*.json')):
         try:
             value = json.loads(marker.read_text())
-            fresh = _time.time() - marker.stat().st_mtime < NATIVE_STALE_SECONDS
+            age = clock() - marker.stat().st_mtime
         except (OSError, ValueError):
             continue
-        if fresh and isinstance(value, dict) and value.get('session_id') == session_id:
-            return True
-    return False
+        if age < NATIVE_STALE_SECONDS and isinstance(value, dict) and value.get('session_id') == session_id:
+            running.append({'agent_id': value.get('agent_id'), 'agent_type': value.get('agent_type') or 'subagent',
+                            'minutes': int(age // 60)})
+    return running
+
+
+def native_in_flight(root, session_id):
+    """True when this session launched an Agent-tool subagent that has not stopped."""
+    return bool(native_running(root, session_id))
 
 
 def dispatch_in_flight(root, session_id=None):
     """True when a retained CLI turn for the active issue holds its turn lock,
     or this session has a native Agent-tool subagent running (SubagentStart)."""
-    if native_in_flight(root, session_id):
-        return True
+    return native_in_flight(root, session_id) or retained_in_flight(root)
+
+
+def retained_in_flight(root):
+    """True when a retained CLI turn for the active issue holds its turn lock."""
     import fcntl as _fcntl
     start = Path(root) / 'devel-loop/loop_state/issue-start.json'
     sessions = Path(root) / 'devel-loop/loop_state/agent_runtime/sessions'
@@ -211,6 +276,33 @@ def dispatch_in_flight(root, session_id=None):
                 return True
             _fcntl.flock(handle, _fcntl.LOCK_UN)
     return False
+
+
+def finalize(root, state, original, parsed, kind, reason, explain, system_message):
+    """End the loop, first reserving one notification-only turn when delivery is owed.
+
+    The saved marker prevents an unavailable provider from extending work forever.
+    """
+    n = parsed['iteration']
+    if 'notification_finalizer: true' not in parsed['header'] and (root / 'esx/project.json').exists():
+        import notifications
+        try:
+            notifications.synchronize(root, terminal=reason)
+            delivery_needed = bool(notifications.pending(root))
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            log(root, 'NOTIFICATION_ERROR', n, str(exc))
+            delivery_needed = False
+        if delivery_needed:
+            from project import atomic_bytes
+            header = parsed['header'] + '\nnotification_finalizer: true'
+            atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
+            return {'decision': 'block', 'reason':
+                explain + ' This is one notification-only finalization turn. '
+                'Use esx-announce to deliver pending notifications and record receipts or concrete failures. '
+                'Do not select issues, dispatch agents, run --next, or start another loop. '
+                'Report unfinished work and undelivered events, then stop without a completion promise.',
+                'systemMessage': system_message}
+    return archive(root, state, original, kind, n, reason)
 
 
 def step(root, hook_input):
@@ -249,30 +341,19 @@ def _step_locked(root, hook_input):
         # must never advance, end or announce the owner's loop (TEAM-LOOP-FOREIGN-STOP-001).
         log(root, 'FOREIGN_STOP', n, f'ignored Stop from session {caller}; loop owned by {owner}')
         return {}
+    cancelled = cancel_request(parsed)
+    if cancelled is not None and work_in_progress(root) is None:
+        # The owner's cancel takes effect here, where a new iteration would start
+        # from the top; the iteration that was active has been closed out.
+        return finalize(root, state, original, parsed, 'CANCELLED', 'cancelled: ' + cancelled,
+                        f'The owner cancelled the loop ({cancelled}) and the iteration that was active is finished.',
+                        'Loop cancelled by the owner; notification finalization only.')
     if limit and n >= limit:
-        # Reserve one bounded notification-only handoff after the last work turn.
-        # The saved marker prevents unavailable delivery from extending work forever.
-        if 'notification_finalizer: true' not in parsed['header'] and (root / 'esx/project.json').exists():
-            import notifications
-            try:
-                notifications.synchronize(root, terminal=f'iteration budget {limit} reached')
-                delivery_needed = bool(notifications.pending(root))
-            except (ValueError, OSError, KeyError, TypeError) as exc:
-                log(root, 'NOTIFICATION_ERROR', n, str(exc))
-                delivery_needed = False
-            if delivery_needed:
-                from project import atomic_bytes
-                header = parsed['header'] + '\nnotification_finalizer: true'
-                atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
-                return {'decision': 'block', 'reason':
-                    f'The loop reached its iteration budget of {limit}. This is not a cost or spend limit: '
-                    'cost and effort are measured, never capped, and max_iterations is the only enforced '
-                    'terminal bound. This is one notification-only finalization turn. '
-                    'Use esx-announce to deliver pending notifications and record receipts or concrete failures. '
-                    'Do not select issues, dispatch agents, run --next, or start another loop. '
-                    'Report unfinished work and undelivered events, then stop without a completion promise.',
-                    'systemMessage': f'Loop iteration budget {limit} reached; notification finalization only.'}
-        return archive(root, state, original, 'END', n, f'iteration budget {limit} reached')
+        return finalize(root, state, original, parsed, 'END', f'iteration budget {limit} reached',
+                        f'The loop reached its iteration budget of {limit}. This is not a cost or spend limit: '
+                        'cost and effort are measured, never capped, and max_iterations is the only enforced '
+                        'terminal bound.',
+                        f'Loop iteration budget {limit} reached; notification finalization only.')
     if parsed['promise']:
         normalize = lambda value: ' '.join(value.split())
         def fulfilled(text):
@@ -289,26 +370,57 @@ def _step_locked(root, hook_input):
                 return archive(root, state, original, 'END', n, 'current completion promise fulfilled')
         except (OSError, ValueError, TypeError, UnicodeError) as exc:
             log(root, 'DEGRADED', n, f'promise check unavailable; continuing within saved budget: {exc}')
+    if (root / 'esx/project.json').exists():
+        try:
+            import notifications
+            notifications.heartbeat(root)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            log(root, 'NOTIFICATION_ERROR', n, str(exc))
+    running = native_running(root, hook_input.get('session_id'))
+    if running:
+        # A background Agent-tool subagent re-invokes this session when it reports,
+        # so the turn may end quietly: no block (the CLI renders every Stop block as
+        # "Stop hook error"), no iteration consumed and no progress post
+        # (TEAM-LOOP-INFLIGHT-BLOCK-NOISE-001, TEAM-LOOP-WAIT-BURNS-ITERATION-001).
+        who = ', '.join(f"{r['agent_type']} ({r['minutes']} min)" for r in running)
+        log(root, 'HOLD', n, f'native subagent running: {who}; stop allowed, iteration not advanced')
+        return {'systemMessage': f'ESX loop holding at iteration {n}/{limit}: {who} still running. '
+                                 'The loop resumes when it reports; nothing is wrong.'}
     raw_waits = parsed['header_fields'].get('dispatch_waits', '0')
     waits = int(raw_waits) if raw_waits.isdigit() else MAX_DISPATCH_WAITS
-    if waits < MAX_DISPATCH_WAITS and dispatch_in_flight(root, hook_input.get('session_id')):
-        # Waiting on a live retained dispatch is not an iteration of work
-        # (TEAM-LOOP-WAIT-BURNS-ITERATION-001); a small cap keeps the loop finite.
-        header = parsed['header']
-        if re.search(r'(?m)^dispatch_waits:', header):
-            header = re.sub(r'(?m)^dispatch_waits:.*$', 'dispatch_waits: ' + str(waits + 1), header)
-        else:
-            header += '\ndispatch_waits: ' + str(waits + 1)
+    if waits < MAX_DISPATCH_WAITS and retained_in_flight(root):
+        # A retained CLI turn sends no completion notification, so this session has
+        # to stay in its turn. Waiting is not an iteration of work, and a small cap
+        # keeps the loop finite.
+        header = set_field(parsed['header'], 'dispatch_waits', waits + 1)
         from project import atomic_bytes
         atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
         log(root, 'WAIT', n, f'retained dispatch in flight; iteration not advanced ({waits + 1}/{MAX_DISPATCH_WAITS})')
-        return {'decision': 'block', 'reason': 'An ESX dispatch (retained session or Agent-tool subagent) is still running. '
-                'Wait in-turn for its completion record (do not end the turn to wait), then continue with '
-                'tools/esx/loop_gate.py --next.',
-                'systemMessage': f'ESX iteration {n} held: dispatch in flight ({waits + 1}/{MAX_DISPATCH_WAITS}).'}
+        return {'decision': 'block', 'reason': 'ESX status, not an error: a retained role turn for the active issue '
+                'is still running. Block on it with `python3 tools/esx/agent_runtime.py wait --timeout 840` '
+                '(repeat while it reports running, and print a one-line status for the owner between waits), '
+                'then continue with tools/esx/loop_gate.py --next.',
+                'systemMessage': f'ESX iteration {n} held: retained dispatch in flight ({waits + 1}/{MAX_DISPATCH_WAITS}).'}
+    stamps = []
+    for token in parsed['header_fields'].get('advance_times', '').split(','):
+        try:
+            stamps.append(float(token))
+        except ValueError:
+            pass
+    moment = clock()
+    recent = [t for t in stamps if 0 <= moment - t < 60]
+    if len(recent) >= MAX_ADVANCES_PER_MINUTE:
+        # No real iteration of work finishes this fast, so something is driving the
+        # loop that should not be. Keep the state and withhold the continuation.
+        log(root, 'ANOMALY', n, f'{len(recent)} loop advances within 60 s; continuation withheld, state kept')
+        return {'systemMessage': f'ESX loop paused: {len(recent)} advances within one minute is not normal work. '
+                                 'The loop state is preserved; check .claude/esx-loop-exit.log, then run /esx-loop '
+                                 'to continue.'}
     header = re.sub(r'(?m)^[ \t]*iteration[ \t]*:[ \t]*[^\r\n]*$',
                     'iteration: ' + str(n + 1), parsed['header'])
-    header = re.sub(r'(?m)^dispatch_waits:.*\n?', '', header).rstrip('\n')
+    header = set_field(header, 'dispatch_waits', None)
+    header = set_field(header, 'advance_times',
+                       ','.join(f'{t:.0f}' for t in (recent + [moment])[-MAX_ADVANCES_PER_MINUTE:]))
     updated = ('---\n' + header + '\n---\n' + parsed['prompt']).encode()
     temporary = None
     try:

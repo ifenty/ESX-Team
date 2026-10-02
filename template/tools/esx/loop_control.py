@@ -13,7 +13,7 @@ from pathlib import Path
 import sys
 import uuid
 from project import atomic_bytes, local
-from ralph_stop import archive, loop_lock, parse_state
+from ralph_stop import archive, cancel_request, log, loop_lock, parse_state, set_field, work_in_progress
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = '.claude/esx-loop.local.md'
@@ -84,6 +84,16 @@ def run(root, max_iterations=None):
         if max_iterations is not None and max_iterations != current['max_iterations']:
             raise ValueError('active loop budget differs; continue with run and no budget override')
         result = dict(current, action='continued', owner_session=bind_owner(root))
+        if current.get('cancelling'):
+            # An explicit continuation is the owner changing their mind.
+            with loop_lock(root):
+                state = local(root, STATE)
+                parsed = parse_state(state.read_text())
+                header = set_field(set_field(parsed['header'], 'stop_after_current', None), 'cancel_reason', None)
+                atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
+            for key in ('cancelling', 'cancel_reason', 'finishing'):
+                result.pop(key, None)
+            result['cancellation'] = 'withdrawn'
     else:
         prompt = local(root, 'devel-loop/autonomous_prompt.md').read_text()
         result = dict(start(root, prompt, 30 if max_iterations is None else max_iterations), action='started')
@@ -101,12 +111,54 @@ def status(root):
         if not state.exists():
             return {'status': 'inactive', 'state': STATE}
         parsed = parse_state(state.read_text())
-        return {'status': 'active' if parsed['active'] == 'true' else 'inactive', 'state': STATE,
-                'iteration': parsed['iteration'], 'max_iterations': parsed['limit'],
-                'completion_promise': parsed['promise']}
+        result = {'status': 'active' if parsed['active'] == 'true' else 'inactive', 'state': STATE,
+                  'iteration': parsed['iteration'], 'max_iterations': parsed['limit'],
+                  'completion_promise': parsed['promise']}
+        pending = cancel_request(parsed)
+        if pending is not None:
+            result.update(cancelling=True, cancel_reason=pending, finishing=work_in_progress(root))
+        return result
 
 
-def cancel(root, reason='cancelled by the project owner'):
+def status_line(root):
+    """One line for the owner's screen: where the loop is and roughly how long remains."""
+    import datetime as dt
+    import notifications
+    facts = notifications.loop_status(Path(root).resolve()) if local(Path(root).resolve(), 'esx/project.json').exists() else None
+    stamp = dt.datetime.now().strftime('%H:%M')
+    return f'ESX status {stamp}: ' + (facts['text'] if facts else 'no active loop.')
+
+
+def wake(root, minutes=None):
+    """Sleep until the interval passes or the loop ends, then print the status line.
+
+    Run it in the background before ending a turn that waits on a dispatch: its
+    completion wakes the coordinator, which relays the line to the owner's screen
+    and re-arms it. This is how a long wait still yields a status every interval.
+    """
+    import time
+    root = Path(root).resolve()
+    if minutes is None:
+        minutes = 15
+        config = local(root, 'esx/project.json')
+        if config.exists():
+            configured = (json.loads(config.read_text()).get('communication') or {}).get('screen_status_minutes')
+            if type(configured) in (int, float) and configured > 0:
+                minutes = configured
+    deadline = time.monotonic() + max(float(minutes), 0) * 60
+    while time.monotonic() < deadline and local(root, STATE).exists():
+        time.sleep(min(5, max(deadline - time.monotonic(), 0)))
+    return status_line(root)
+
+
+def cancel(root, reason='cancelled by the project owner', now=False):
+    """Stop the loop from starting another iteration; ``now`` abandons work in progress.
+
+    A plain cancel never interrupts the active iteration. It marks the live state,
+    the iteration runs on through review, closeout and its retrospective with the
+    Stop hook, notifications and gates all still working, and the loop ends at the
+    point where a new iteration would have started from the top.
+    """
     if os.environ.get('ESX_AGENT_RUNTIME_CHILD') == '1':
         raise ValueError('retained role sessions cannot cancel the parent ESX loop')
     root = Path(root).resolve()
@@ -115,14 +167,28 @@ def cancel(root, reason='cancelled by the project owner'):
         if not state.exists():
             return {'status': 'inactive', 'state': STATE}
         original = state.read_bytes()
-        import notifications
-        if local(root, 'esx/project.json').exists():
-            notifications.synchronize(root, terminal='cancelled: ' + reason)
+        if not now:
+            try:
+                parsed = parse_state(original.decode())
+            except (ValueError, UnicodeError):
+                parsed = None
+            unfinished = work_in_progress(root) if parsed and parsed['active'] == 'true' else None
+            if unfinished:
+                header = set_field(parsed['header'], 'stop_after_current', 'true')
+                header = set_field(header, 'cancel_reason', json.dumps(reason))
+                atomic_bytes(state, ('---\n' + header + '\n---\n' + parsed['prompt']).encode())
+                log(root, 'CANCEL_REQUESTED', parsed['iteration'], f'{reason}; {unfinished} is finished first')
+                return {'status': 'cancelling', 'state': STATE, 'finishing': unfinished,
+                        'detail': f'No new iteration will start. {unfinished} continues through review, closeout '
+                                  'and its retrospective, and the loop ends after that. Keep working with '
+                                  'tools/esx/loop_gate.py --next. To stop immediately and abandon work in '
+                                  'progress, run `loop_control.py abort`.'}
         try:
             iteration = parse_state(original.decode())['iteration']
         except (ValueError, UnicodeError):
             iteration = '?'
-        archive(root, state, original, 'CANCELLED', iteration, reason)
+        # archive() queues the loop-end notice with this same reason text.
+        archive(root, state, original, 'CANCELLED', iteration, 'cancelled: ' + reason)
         return {'status': 'cancelled', 'state': STATE}
 
 
@@ -136,9 +202,14 @@ def main(argv=None):
     create.add_argument('--prompt-file', type=Path, required=True)
     create.add_argument('--max-iterations', type=int, default=30)
     create.add_argument('--completion-promise', default='ESX-LOOP-NO-ACTIONABLE-WORK')
-    sub.add_parser('status')
-    stop = sub.add_parser('cancel')
+    report = sub.add_parser('status')
+    report.add_argument('--line', action='store_true', help="print the one-line owner status instead of JSON")
+    alarm = sub.add_parser('wake', help='sleep, then print the status line; run in the background during a wait')
+    alarm.add_argument('--minutes', type=float, help='default: communication.screen_status_minutes, else 15')
+    stop = sub.add_parser('cancel', help='let the active iteration finish; start no new one')
     stop.add_argument('--reason', default='cancelled by the project owner')
+    halt = sub.add_parser('abort', help='end the loop now, abandoning any iteration in progress')
+    halt.add_argument('--reason', default='aborted by the project owner')
     args = parser.parse_args(argv)
     try:
         if args.action == 'run':
@@ -147,6 +218,14 @@ def main(argv=None):
             result = start(args.root, args.prompt_file.read_text(), args.max_iterations, args.completion_promise)
         elif args.action == 'cancel':
             result = cancel(args.root, args.reason)
+        elif args.action == 'abort':
+            result = cancel(args.root, args.reason, now=True)
+        elif args.action == 'wake':
+            print(wake(args.root, args.minutes))
+            return 0
+        elif args.line:
+            print(status_line(args.root))
+            return 0
         else:
             result = status(args.root)
         print(json.dumps(result, indent=2))

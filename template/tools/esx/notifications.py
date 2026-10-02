@@ -46,14 +46,141 @@ def ledger(root):
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
+def render(route, text):
+    """Message text with the project's own short prefix (never a hard-coded name)."""
+    return ((route.get('message_prefix') or '[ESX]') + ' ' + text)[:1800]
+
+
 def emit(data, key, kind, subject, text, route):
     identity = digest([key, route.get('provider'), route.get('channel')])[:24]
     if identity not in data['events']:
         data['events'][identity] = {'id': identity, 'kind': kind, 'subject': subject,
-            'text': ((route.get('message_prefix') or '[ESX]') + ' ' + text)[:1800],
+            'text': render(route, text),
             'provider': route.get('provider'), 'channel': route.get('channel'),
             'created_at': now(), 'status': 'pending', 'attempts': []}
     return identity
+
+
+def cadence(route):
+    """Minutes between loop heartbeats, or None when the project has not opted in.
+
+    A project that sets communication.heartbeat_minutes gets one short heartbeat
+    per interval in place of a progress post per loop iteration.
+    """
+    value = route.get('heartbeat_minutes')
+    return value if type(value) in (int, float) and value > 0 else None
+
+
+def seconds_since(stamp):
+    """Seconds from an ISO timestamp written by project.now() until now."""
+    import datetime as dt
+    return (dt.datetime.fromisoformat(now()) - dt.datetime.fromisoformat(stamp)).total_seconds()
+
+
+def duration_text(seconds):
+    minutes = int(round(seconds / 60))
+    if minutes < 60:
+        return f'~{max(minutes, 1)} min'
+    return f'~{minutes // 60} h {minutes % 60:02d} min'
+
+
+def loop_status(root):
+    """Facts for the owner's one-line status, or None when no loop is active.
+
+    The remaining-time estimate is the median wall-clock duration of the issues
+    this project has closed, times the open actionable issues, less the time
+    already spent on the active one. It is 'unknown' without closed history.
+    """
+    root = Path(root).resolve()
+    current = session(root)
+    if current is None:
+        return None
+    state, _ = current
+    import ralph_stop
+    opened, _, _ = validate_records(root)
+    actionable = [row for row in opened.values() if row['state'] != 'blocked']
+    history = json_lines(local(root, f'{STATE}/loop_history.jsonl'))
+    starts = local(root, f'{STATE}/issue-start.json')
+    start = json.loads(starts.read_text()) if starts.exists() else None
+    active = start if start and not any(
+        (h['id'], h['timestamp']) == (start['id'], start['timestamp']) for h in history) else None
+    owner = state['header_fields'].get('owner_session')
+    running = ralph_stop.native_running(root, owner)
+    if active:
+        import loop_iteration
+        done = local(root, f'{STATE}/issue-done.json')
+        if running:
+            phase = ', '.join(f"{r['agent_type']} running {r['minutes']} min" for r in running)
+        elif ralph_stop.retained_in_flight(root):
+            phase = 'retained role turn running'
+        elif not loop_iteration.start_status(root, active)['validated']:
+            phase = 'starting'
+        elif done.exists() and loop_iteration.matches(active, json.loads(done.read_text())):
+            phase = 'closeout'
+        else:
+            phase = 'coordinating'
+        issue = active['id']
+    else:
+        issue = None
+        phase = 'retrospective' if ralph_stop.work_in_progress(root) else 'selecting the next issue'
+    spans = []
+    for row in history:
+        try:
+            import datetime as dt
+            spent = (dt.datetime.fromisoformat(row['closed_at'])
+                     - dt.datetime.fromisoformat(row.get('start_timestamp') or row['timestamp'])).total_seconds()
+        except (KeyError, ValueError, TypeError):
+            continue
+        if spent > 0:
+            spans.append(spent)
+    if spans and actionable:
+        spans.sort()
+        typical = spans[len(spans) // 2]
+        elapsed = seconds_since(active['timestamp']) if active else 0
+        eta = duration_text(max(typical - elapsed, 0) + typical * max(len(actionable) - (1 if active else 0), 0))
+    else:
+        eta = 'unknown time' if actionable else '~0 min'
+    status = 'cancelling after the current issue' if ralph_stop.cancel_request(state) is not None else 'working'
+    where = f'{status} on {issue} ({phase})' if issue else f'{status}, {phase}'
+    return {'iteration': state['iteration'], 'limit': state['limit'], 'issue': issue, 'phase': phase,
+            'status': status, 'eta': eta, 'open_issues': len(opened),
+            'text': f"Loop iteration {state['iteration']}/{state['limit']}: {where}; {eta} remaining; "
+                    f"{len(opened)} open issues."}
+
+
+HEARTBEAT_QUIET_SECONDS = 600
+
+
+def heartbeat(root):
+    """Queue the periodic one-sentence heartbeat when it is due; return its id or None.
+
+    Due means the configured interval has passed since the loop run started or
+    since the last heartbeat. It is deferred while another event for the run was
+    queued within HEARTBEAT_QUIET_SECONDS, so it never doubles an event post.
+    """
+    root = Path(root).resolve()
+    current = session(root)
+    if current is None:
+        return None
+    _, run = current
+    route = json.loads(local(root, 'esx/project.json').read_text()).get('communication', {})
+    minutes = cadence(route)
+    if minutes is None or not route.get('provider') or route.get('provider') in ('none', 'disabled'):
+        return None
+    facts = loop_status(root)
+    with ledger(root) as data:
+        seen = data['runs'].get(run)
+        if seen is None:
+            return None
+        last = seen.get('last_heartbeat_at') or seen.setdefault('started_at', now())
+        if seconds_since(last) < minutes * 60:
+            return None
+        if any(seconds_since(e['created_at']) < HEARTBEAT_QUIET_SECONDS for e in data['events'].values()
+               if e['channel'] == route.get('channel')):
+            return None
+        seen['heartbeats'] = seen.get('heartbeats', 0) + 1
+        seen['last_heartbeat_at'] = now()
+        return emit(data, ['loop_heartbeat', run, seen['heartbeats']], 'loop_heartbeat', run, facts['text'], route)
 
 
 def synchronize(root, terminal=None):
@@ -80,7 +207,7 @@ def synchronize(root, terminal=None):
     with ledger(root) as data:
         if run not in data['runs']:
             data['runs'][run] = {'issues': sorted(set(opened) | set(closed)), 'lessons': sorted(lessons),
-                                'history': [[h['id'], h['timestamp']] for h in history]}
+                                'history': [[h['id'], h['timestamp']] for h in history], 'started_at': now()}
             emit(data, ['loop_start', run], 'loop_start', run,
                  f"Loop active at iteration {state['iteration']}/{state['limit']}. "
                  f"{len(opened)} open issues; autonomous work follows the project contracts.", route)
@@ -103,17 +230,45 @@ def synchronize(root, terminal=None):
                 emit(data, ['closeout', *identity], 'issue_closeout', h['id'],
                      f"{h['id']} — {h['outcome']}: {h['summary']}", route)
                 seen['history'].append(identity)
-        if state['iteration'] > 1 and terminal is None:
-            iid = start['id'] if start else 'issue selection'
-            emit(data, ['progress', run, state['iteration']], 'progress', run,
-                 f"Loop iteration {state['iteration']}/{state['limit']}; current record: {iid}. "
-                 'Work and verification continue; completion is reported after validated closeout.', route)
-        if terminal:
-            emit(data, ['loop_end', run], 'loop_end', run,
-                 f"Loop ending: {terminal}. {len(opened)} open issues, "
-                 f"{sum(r['state'] == 'blocked' for r in opened.values())} blocked. "
-                 'Unfinished work remains recorded on disk.', route)
+        ends = sorted((e for e in data['events'].values() if e['kind'] == 'loop_end' and e['subject'] == run),
+                      key=lambda e: (e['created_at'], e['id']))
+        if terminal is None:
+            for e in ends:
+                # The loop went on past an ending that was announced but never sent:
+                # delivering it now would state something that did not happen.
+                if e['status'] == 'pending' and type(e.get('iteration')) is int and e['iteration'] < state['iteration']:
+                    e.update(status='superseded', superseded_at=now())
+            if state['iteration'] > 1 and cadence(route) is None:
+                iid = start['id'] if start else 'issue selection'
+                emit(data, ['progress', run, state['iteration']], 'progress', run,
+                     f"Loop iteration {state['iteration']}/{state['limit']}; current record: {iid}. "
+                     'Work and verification continue; completion is reported after validated closeout.', route)
+        else:
+            import ralph_stop
+            unfinished = ralph_stop.work_in_progress(root)
+            latest = ends[-1] if ends else None
+            # One ending is announced once. A new event is queued only when the
+            # loop went on after an earlier announcement and is now ending again.
+            if latest is None or latest['status'] == 'superseded' or (
+                    latest['status'] != 'pending' and type(latest.get('iteration')) is int
+                    and latest['iteration'] < state['iteration']):
+                latest = data['events'][emit(data, ['loop_end', run] + ([len(ends)] if ends else []),
+                                             'loop_end', run, '', route)]
+            if latest['status'] == 'pending':
+                # A fulfilled promise is how the loop stops, not why; keep the reason
+                # already recorded for this ending when there is one.
+                if terminal != 'current completion promise fulfilled' or not latest.get('terminal'):
+                    latest['terminal'] = terminal
+                # Reason and counts describe the state at this synchronization, so a
+                # queued ending never carries text from an earlier one.
+                latest.update(iteration=state['iteration'], text=render(
+                    route, f"Loop ending: {latest['terminal']}. {len(opened)} open issues, "
+                    f"{sum(r['state'] == 'blocked' for r in opened.values())} blocked. "
+                    + (f'Unfinished work on {unfinished} remains recorded on disk.' if unfinished
+                       else 'No iteration is in progress.')))
         cover(data, run, state['iteration'])
+    if terminal is None:
+        heartbeat(root)
 
 
 def session(root):

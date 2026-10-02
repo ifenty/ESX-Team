@@ -54,7 +54,9 @@
     "provider": "disabled",
     "channel": "",
     "message_prefix": "",
-    "authorization_reference": ""
+    "authorization_reference": "",
+    "heartbeat_minutes": 60,
+    "screen_status_minutes": 15
   },
   "commit_policy": {
     "mode": "owner_authorization",

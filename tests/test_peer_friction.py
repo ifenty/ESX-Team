@@ -53,16 +53,29 @@ class NativeInFlightTests(Temp):
         with self.assertRaises(ValueError):
             hooks.started(self.root, {'agent_id': '../escape', 'session_id': 'arch'})
 
-    def test_stop_hook_does_not_advance_while_a_native_subagent_runs(self):
+    def test_stop_is_allowed_quietly_while_a_native_subagent_runs(self):
+        """No block (the CLI shows one as "Stop hook error"), no advance, no wait count."""
         (self.root / '.claude').mkdir()
         state = self.root / '.claude/esx-loop.local.md'
         state.write_text('---\nactive: true\niteration: 2\nmax_iterations: 5\n'
                          'completion_promise: "DONE"\n---\nContinue.\n')
-        hooks.started(self.root, {'agent_id': 'bob1', 'session_id': 'arch'})
+        before = state.read_text()
+        hooks.started(self.root, {'agent_id': 'bob1', 'agent_type': 'bob', 'session_id': 'arch'})
+        for _ in range(hook.MAX_DISPATCH_WAITS + 2):  # holding is not capped: nothing is consumed
+            with redirect_stderr(io.StringIO()):
+                result = hook.step(self.root, {'session_id': 'arch', 'last_assistant_message': 'waiting'})
+            self.assertNotIn('decision', result)
+            self.assertIn('bob', result['systemMessage'])
+            self.assertIn('nothing is wrong', result['systemMessage'])
+        self.assertEqual(state.read_text(), before)
+        self.assertIn('HOLD', (self.root / '.claude/esx-loop-exit.log').read_text())
+        with patch.object(runtime, 'stop_record', return_value={}), \
+                patch.dict(sys.modules, {'agent_runtime': runtime}):
+            hooks.capture(self.root, {'agent_id': 'bob1', 'session_id': 'arch'})
         with redirect_stderr(io.StringIO()):
-            result = hook.step(self.root, {'session_id': 'arch', 'last_assistant_message': 'waiting'})
-        self.assertEqual(result['decision'], 'block')
-        self.assertIn('iteration: 2\n', state.read_text())
+            result = hook.step(self.root, {'session_id': 'arch', 'last_assistant_message': 'bob reported'})
+        self.assertEqual(result['decision'], 'block')  # the loop continues once the subagent has reported
+        self.assertIn('iteration: 3', state.read_text())
 
 
 class InterpreterTests(Temp):

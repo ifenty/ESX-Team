@@ -17,9 +17,12 @@ def finished(start, history):
     return any(matches(start, row) for row in history)
 
 
-def record_start(root, start):
+def record_start(root, start, late=None):
+    """Save the start receipt; ``late`` records why it was taken after work began."""
     record = {'version': 1, 'id': start['id'], 'iteration': start.get('iteration'),
               'timestamp': start['timestamp'], 'start_sha256': digest(start), 'validated_at': now()}
+    if late:
+        record['late'] = {'reason': late}
     atomic_json(Path(root) / STATE / 'start-receipts' / (digest(start) + '.json'), record)
     return record
 
@@ -32,6 +35,9 @@ def start_status(root, start):
         receipt = json.loads(path.read_text())
         if receipt.get('start_sha256') != digest(start) or not matches(start, receipt) or not receipt.get('validated_at'):
             raise ValueError('start receipt mismatch')
-        return {'validated': True, 'receipt': str(path.relative_to(root)), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        status = {'validated': True, 'receipt': str(path.relative_to(root)), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        if receipt.get('late'):
+            status['late'] = receipt['late']
+        return status
     except (ValueError, OSError, TypeError):
         return {'validated': False, 'reason': 'no matching successful start', 'legacy': start.get('state_version', 1) < 2}

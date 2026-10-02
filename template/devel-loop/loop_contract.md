@@ -57,6 +57,9 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
 1. Run --next; read the selected issue, priority, applicable lessons and map.
 2. Run --prepare before issue edits. Preserve the first issue baseline across
    corrections and partial iterations. Deliver queued start communication, record its result, then --check-start.
+   No role is dispatched and no issue file is edited before the start receipt exists; `--next` asks for
+   --check-start while it is missing. If the check was skipped and the work has already changed the oriented
+   targets, run `--check-start --late-reason "<why>"`: the receipt is marked late and closeout reports it.
 3. Dispatch the required roles using [retained sessions](execution.md). Use focused
    checks, import actual completion records and communicate findings immediately.
 4. Maintain source/docs/map, seal the documentation plan, and capture the candidate.
@@ -69,10 +72,10 @@ when diagnosing termination. Never edit a counter to conceal failed progress.
    completed entry out of open_issues.md yourself: the ledger records only accepted work.
 7. Run --closeout-doctor (read-only; `--done PATH` inspects a draft) to list every
    unmet closeout requirement at once. Finalize every field that review_signature
-   covers (listed in the doctor output) before taking the final verification receipt;
-   a later edit makes the receipt stale, and final_verification.py run without --fresh
-   then rebinds the unchanged execution. After a genuine re-run, `loop_lifecycle.py
-   rebind-receipt` re-points the prepared closeout at the new receipt.
+   covers (listed in the doctor output), then run `loop_lifecycle.py rebind-receipt`.
+   It binds the passing final execution to issue-done.json without running the suite
+   again and cites the receipt there. A receipt taken from the review packet never
+   matches the finished closeout, so this step is always needed.
    Then run --check-done. PASS moves a completed entry into closed_issues.md (Status
    Resolved, Date Resolved = acceptance time) under a journaled transaction and saves
    the complete closeout in durable history. A refusal moves nothing. `loop_lifecycle.py

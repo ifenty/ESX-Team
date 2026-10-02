@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
@@ -266,6 +266,69 @@ def session_path(root, session):
     except ValueError as exc:
         raise ValueError("session must be a CLI session UUID") from exc
     return local(root, "devel-loop/loop_state/agent_runtime/sessions/" + session)
+
+
+ROLE_TURN_SECONDS = {"bob": 3600}
+DEFAULT_TURN_SECONDS = 1800
+TIMEOUT_HELP = ("wall-clock seconds for this turn; default: runtime.turn_timeout_seconds in esx/project.json "
+                "(a number, or a per-role object), else 3600 for bob and 1800 for other roles")
+
+
+def turn_timeout(root, role, requested=None):
+    """Wall-clock limit for one retained turn.
+
+    An implementation turn is usually longer than a review or search turn, so
+    the default depends on the role, and a project can size it from its own
+    measured turns. An explicit --timeout always wins.
+    """
+    if requested is not None:
+        return requested
+    configured = None
+    path = Path(root) / "esx/project.json"
+    if path.is_file():
+        configured = (json.loads(path.read_text()).get("runtime") or {}).get("turn_timeout_seconds")
+    if isinstance(configured, dict):
+        configured = configured.get(role, configured.get("default"))
+    if configured is not None:
+        if isinstance(configured, bool) or not isinstance(configured, (int, float)) or configured <= 0:
+            raise ValueError("runtime.turn_timeout_seconds must be a positive number or a per-role object of them")
+        return configured
+    return ROLE_TURN_SECONDS.get(role, DEFAULT_TURN_SECONDS)
+
+
+def wait_for_turns(root, timeout, session=None, poll=2.0):
+    """Block until no retained turn is running, or until ``timeout`` seconds pass.
+
+    With ``session`` it watches that session's turn lock; otherwise every running
+    retained turn of the active issue. A retained turn sends no completion event
+    to the coordinator, so this is how a coordinator waits for one inside its own
+    turn without a busy loop of its own.
+    """
+    import ralph_stop
+    root = Path(root).resolve()
+    begun = time.monotonic()
+
+    def running():
+        if session is None:
+            return ralph_stop.retained_in_flight(root)
+        lock = session_path(root, session) / ".turn.lock"
+        if not lock.exists():
+            return False
+        with lock.open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+
+    while running():
+        if time.monotonic() - begun >= timeout:
+            return {"status": "running", "waited_seconds": round(time.monotonic() - begun, 1),
+                    "next": "the turn is still running; run wait again"}
+        time.sleep(poll)
+    return {"status": "idle", "waited_seconds": round(time.monotonic() - begun, 1),
+            "next": "no retained turn is running; continue with tools/esx/loop_gate.py --next"}
 
 
 def role_runtime_settings(root):
@@ -616,7 +679,7 @@ def _execute(root, folder, state, command, prompt, timeout, tool_timeout, stdout
 
 
 def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_round=0,
-             executable="claude", timeout=1800, probe=False, from_session=None,
+             executable="claude", timeout=None, probe=False, from_session=None,
              replaces_agent=None, replacement_reason=None, progress=None, review_packet=None, transition=None, tool_timeout=600, turn_calls=60,
              witness=False):
     """Execute one retained turn, recording failures before returning non-success."""
@@ -624,7 +687,7 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
     resumed = session is not None
     if type(correction_round) is not int or correction_round < 0:
         raise ValueError("correction round must be nonnegative")
-    if not isinstance(timeout, (float, int)) or timeout <= 0:
+    if timeout is not None and (not isinstance(timeout, (float, int)) or timeout <= 0):
         raise ValueError("timeout must be positive")
     replacement = None
     if not resumed and (correction_round > 0 or replaces_agent or replacement_reason):
@@ -643,6 +706,7 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                 raise ValueError("session already exists")
             state = {"session_id": session, "role": role, "issue_id": issue,
                      "probe": probe, "turns": [], "created_at": now()}
+        timeout = turn_timeout(root, role, timeout)
         if from_session:
             sender_path = session_path(root, from_session) / "session.json"
             if not sender_path.is_file():
@@ -711,11 +775,14 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                         "--settings", json.dumps(role_runtime_settings(root))]
             if fields["model"]:
                 command += ["--model", fields["model"]]
+            deadline = datetime.now(timezone.utc) + timedelta(seconds=timeout)
             assignment = {"agent": role, "agent_id": session, "session_id": session,
                           "issue_id": issue, "iteration_timestamp": iteration_timestamp,
                           "correction_round": correction_round,
                           "sender_session_id": from_session,
-                          "baseline": (active.get("maintenance") or {}).get("baseline")}
+                          "baseline": (active.get("maintenance") or {}).get("baseline"),
+                          "turn_minutes": round(timeout / 60, 1),
+                          "turn_deadline_utc": deadline.strftime('%Y-%m-%dT%H:%M:%SZ')}
             if review is not None:
                 assignment["review"] = review
                 state["review_packet"] = review
@@ -727,7 +794,10 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                 "Use the supplied issue, iteration and correction round in your footer. "
                 "The baseline identifies issue maintenance evidence. Follow the bounded brief, "
                 "record your own orientation and preserve project permissions. "
-                "Read supplied review references and confirm the exact sealed documentation in your footer.")
+                "Read supplied review references and confirm the exact sealed documentation in your footer. "
+                "This turn is stopped at turn_deadline_utc and anything not on disk is lost: write each finished "
+                "unit to disk as you go, check `date -u` before starting a long unit, and when less than a fifth "
+                "of turn_minutes remains, finish the unit in hand and report with your footer, listing what is left.")
             command += ["--append-system-prompt-file", str(turn / "assignment.txt")]
         if transition_result and transition_result["classification"] == "assessed":
             prompt = "Assessed runtime transition for this retained session. Read changed instruction files before acting: " + json.dumps(transition_result) + "\n" + prompt
@@ -1009,7 +1079,7 @@ def main(argv=None):
     start.add_argument("--prompt-file", type=Path, required=True)
     start.add_argument("--review-packet", type=Path)
     start.add_argument("--correction-round", type=int, default=0)
-    start.add_argument("--timeout", type=float, default=1800)
+    start.add_argument("--timeout", type=float, help=TIMEOUT_HELP)
     start.add_argument("--replaces-agent", help="recorded native or CLI identity being replaced")
     start.add_argument("--replacement-reason")
     follow = sub.add_parser("followup", aliases=["message"])
@@ -1018,10 +1088,13 @@ def main(argv=None):
     follow.add_argument("--prompt-file", type=Path, required=True)
     follow.add_argument("--review-packet", type=Path)
     follow.add_argument("--correction-round", type=int, required=True)
-    follow.add_argument("--timeout", type=float, default=1800)
+    follow.add_argument("--timeout", type=float, help=TIMEOUT_HELP)
     follow.add_argument("--from-session", help="recorded peer identity for an issue-scoped message")
     status = sub.add_parser("status")
     status.add_argument("--session", required=True)
+    hold = sub.add_parser("wait", help="block until no retained turn is running (or the timeout passes)")
+    hold.add_argument("--session", help="watch one session; default: every running turn of the active issue")
+    hold.add_argument("--timeout", type=float, default=840)
     recover = sub.add_parser("recover", help="close crashed turns that never wrote a record")
     recover.add_argument("--session", required=True)
     recover.add_argument("--reason", required=True)
@@ -1059,6 +1132,9 @@ def main(argv=None):
             value = runtime_contract(root, args.claude)
         elif args.command == "status":
             value = json.loads((session_path(root, args.session) / "session.json").read_text())
+        elif args.command == "wait":
+            print(json.dumps(wait_for_turns(root, args.timeout, args.session), indent=2))
+            return 0
         elif args.command == "recover":
             value = recover_orphans(root, args.session, args.reason)
         elif args.command == "probe":
