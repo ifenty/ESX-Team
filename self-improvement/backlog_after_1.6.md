@@ -43,3 +43,15 @@ work and deferred. Each item names the measured problem it answers.
   incomplete turn would be missed; store it for any turn that did not complete.
 - **A live pause and resume under a running loop** was covered by unit tests only in the
   acceptance run; exercise it at the next real loop on each project.
+
+## From the 1.6.3 acceptance run
+
+- **Automatic-pause message.** The Stop hook's message for a pause it set itself says
+  "until /esx-loop resumes it", which suggests a manual resume is needed. For
+  `pause_source: provider_limit` say "until the usage limit resets; it resumes by itself on
+  the next working turn (or /esx-loop)".
+- **Mistyped-reference messages.** "invalid verification artifact path" is accurate but
+  hard to act on; name both values ("the path names <sha in path> but sha256 is <given>"),
+  and the same for orientation and documentation references.
+- **Owner check behind freshness.** In `footer_contract.reference_errors` a stale evidence
+  file hides an owner mismatch; report the owner independently of freshness.
