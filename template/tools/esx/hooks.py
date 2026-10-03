@@ -112,7 +112,11 @@ if __name__ == '__main__':
                 event = json.load(sys.stdin)
             except ValueError:
                 event = {}
-            capture(args.root.resolve(), event)
+            record = capture(args.root.resolve(), event)
+            if isinstance(record, dict) and record.get('status') != 'completed':
+                # Tell the coordinator at once; a broken report otherwise surfaces only at closeout.
+                print(f"ESX: the {record.get('agent_type')} stop {record.get('event_id')} was recorded "
+                      f"{record.get('status')}: {record.get('error')}", file=sys.stderr)
         else:
             validate_records(args.root.resolve())
             if os.environ.get('ESX_AGENT_RUNTIME_CHILD') != '1':

@@ -280,6 +280,28 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.3: limits pause and resume the loop by themselves; reports are checked on arrival
+
+- **Automatic pause and resume at usage limits.** When the coordinator's turn ends
+  on the provider's usage-limit record (an assistant record with error `rate_limit`,
+  the API-error flag and the CLI's synthetic model; the text is never parsed), the
+  Stop hook pauses the loop itself (`pause_source: provider_limit`) and counts
+  nothing while it waits, however long the limit lasts. The first later turn that
+  does real work lifts that pause and is treated as a normal Stop. A retained role
+  turn refused for a limit pauses the loop until its reset time when the stream
+  gives one; a native subagent refused for a limit is recorded as a failed turn with
+  `provider_limit` and pauses it too. An owner's pause is never lifted this way, and a
+  pending cancel survives. `loop_paused` and `loop_resumed` notices are queued.
+- **Reports are checked when they arrive.** A native Bob or Richard stop whose footer
+  cites an orientation receipt, evidence file or documentation report that does not
+  resolve (a mistyped hash, a stale or foreign evidence file) is recorded
+  `incomplete` with the reference named, and the SubagentStop hook prints it. A
+  short followup fixes it under the same-agent continuation rule.
+- **The audit is part of the implementer's checks.** Generated briefs require
+  `tools/esx/audit.py` after the last edit, and `doc_contract.py seal` refuses a plan
+  whose code map does not audit, naming the reference.
+- `provider_limit` is recorded on any unfinished retained turn, not only a failed one.
+
 ## Version 1.6.2: pause, repeated stops, superseded figures
 
 Three faults found by running 1.6.1 on two projects.
