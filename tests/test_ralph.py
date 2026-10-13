@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,39 @@ def assistant(text=None, identity=None, blocks=None):
 
 def user(text='Continue the issue.'):
     return {'type': 'user', 'message': {'role': 'user', 'content': text}}
+
+
+def verification_script(root, seconds):
+    script = root / 'tools/esx/final_verification.py'
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(f'import time\ntime.sleep({seconds})\n')
+    return script
+
+
+def launch_detached(root, script):
+    """Launch `script` the way a detached final verification is launched.
+
+    A launcher Popens it with start_new_session=True and exits at once, so the
+    run is reparented to PID 1 and has no ancestor in this process tree.
+    """
+    marker = root / 'detached.pid'
+    launcher = ('import subprocess, sys\n'
+                f'p = subprocess.Popen([sys.executable, {str(script)!r}], cwd={str(root)!r},\n'
+                '                     start_new_session=True, stdin=subprocess.DEVNULL,\n'
+                '                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n'
+                f'open({str(marker)!r}, "w").write(str(p.pid))\n')
+    subprocess.run([sys.executable, '-c', launcher], check=True)
+    return int(marker.read_text())
+
+
+def wait_for(predicate, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.1)
+    return predicate()
 
 
 class StopTests(unittest.TestCase):
@@ -259,6 +293,84 @@ class StopTests(unittest.TestCase):
             self.assertEqual(result.stdout, '')
             self.assertEqual(self.state.read_bytes(), original)
             self.assertFalse((Path(other) / '.claude').exists())
+
+    def test_verification_run_holds_the_iteration(self):
+        """A live verification run in this checkout is detected; one elsewhere is not."""
+        script = verification_script(self.root, 30)
+        other = self.root / 'other'
+        other.mkdir()
+        foreign_script = verification_script(other, 30)
+        proc = subprocess.Popen([sys.executable, str(script)], cwd=self.root)
+        foreign = subprocess.Popen([sys.executable, str(foreign_script)], cwd=other)
+        try:
+            found = wait_for(lambda: hook.verification_running(self.root))
+            self.assertEqual([r['script'] for r in found], ['tools/esx/final_verification.py'])
+            self.assertEqual(found[0]['pid'], proc.pid)
+            # The same script running in another checkout is not this loop's work.
+            self.assertEqual([r['pid'] for r in hook.verification_running(other)], [foreign.pid])
+            self.assertEqual(len(hook.verification_running(self.root)), 1)
+        finally:
+            proc.kill()
+            foreign.kill()
+            proc.wait()
+            foreign.wait()
+        self.assertEqual(hook.verification_running(self.root), [])
+
+    def test_verification_hold_releases_and_does_not_stall(self):
+        """A detached run must not let the loop stop on a promise nobody keeps.
+
+        Checks the release as well as the hold: once the run is gone the loop
+        must advance and clear its wait counter.
+        """
+        self.write_state(iteration='3', limit='20', promise='null')
+        self.rows(user(), assistant('Work remains.'))
+        script = verification_script(self.root, 30)
+        # This process stands in for the session's `claude` process.
+        with patch.object(hook, 'session_process', lambda start=None: os.getpid()):
+            # 1. Untracked: block, naming the real process, without spending the iteration.
+            pid = launch_detached(self.root, script)
+            try:
+                self.assertTrue(wait_for(lambda: hook.verification_running(self.root)))
+                self.assertEqual(hook.parent_pid(pid), 1, 'the launch must reproduce the detached form')
+                self.assertEqual([r['pid'] for r in hook.untracked_runs(hook.verification_running(self.root))], [pid])
+                result = self.step()
+                self.assertEqual(result.get('decision'), 'block', result)
+                self.assertIn(f'tail --pid={pid}', result['reason'])
+                self.assertIn('run_in_background', result['reason'])
+                self.assertNotIn('nothing is wrong', json.dumps(result))
+                self.assertIn('verify_waits: 1', self.state.read_text())
+                self.assertIn('iteration: 3', self.state.read_text())
+            finally:
+                try:
+                    os.kill(pid, 9)
+                except ProcessLookupError:
+                    pass
+
+            # 2. Released: the loop advances and the counter is cleared.
+            self.assertTrue(wait_for(lambda: not hook.verification_running(self.root)))
+            self.step()
+            text = self.state.read_text()
+            self.assertIn('iteration: 4', text)
+            self.assertNotIn('verify_waits', text)
+
+            # 3. Tracked: a child of the session is notified on exit, so a quiet stop is correct.
+            child = subprocess.Popen([sys.executable, str(script)], cwd=self.root)
+            try:
+                self.assertTrue(wait_for(lambda: hook.verification_running(self.root)))
+                self.assertEqual(hook.untracked_runs(hook.verification_running(self.root)), [])
+                result = self.step()
+                self.assertNotEqual(result.get('decision'), 'block', result)
+                self.assertIn('re-invoked when it finishes', result['systemMessage'])
+                self.assertIn('iteration: 4', self.state.read_text())
+            finally:
+                child.kill()
+                child.wait()
+
+    def test_unidentified_session_counts_as_untracked(self):
+        """Fail safe: a wrong 'tracked' costs hours, a needless wait a status line."""
+        run = [{'script': 'tools/esx/final_verification.py', 'minutes': 0, 'pid': os.getpid()}]
+        self.assertEqual(hook.untracked_runs(run, session=0), run)
+        self.assertEqual(hook.untracked_runs(run, session=os.getpid()), [])
 
 
 class LoopControlTests(unittest.TestCase):

@@ -280,6 +280,18 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.4: the loop holds during a long verification run instead of advancing
+
+- **A running final verification no longer spends the iteration budget.** The Stop
+  hook now finds a `tools/esx/final_verification.py` or `tools/esx/verify.py` run
+  in this checkout (from `/proc`, bound to its working directory) and holds the
+  loop. A run launched under the session's own `claude` process re-invokes the
+  session on exit, so the stop is quiet. A detached run does not, so the hook
+  blocks with a foreground wait command, up to a cap that outlasts the five-hour
+  staleness limit, and releases with the counter cleared once the run is gone.
+  Ported from the MITgcm_new_runoff pilot (TEAM-LOOPHOLD-ARCH-BACKGROUND-WORK-001,
+  TEAM-LOOPHOLD-NO-RELEASE-001).
+
 ## Version 1.6.3: limits pause and resume the loop by themselves; reports are checked on arrival
 
 - **Automatic pause and resume at usage limits.** When the coordinator's turn ends
