@@ -28,6 +28,13 @@ workflow mechanisms without repeatedly reading their entire implementations.
 Required scientific review must run on a runtime supporting independent agents;
 record an unavailable runtime as a blocker. Do not invent agent completions.
 
+Launch a verification that may run longer than a tool call with the Bash tool and
+`run_in_background` (a background command is capped at 2 h). If the scientific suite
+needs more than that, configure `verification.scientific_groups` and run one group per
+background command (`final_verification.py run --group NAME`), then `run` to seal the
+aggregate; re-running resumes at the group that did not pass. Groups must be
+independent: a group that needs a build contains the build command itself.
+
 Follow verification stages and the single final-run owner. Preserve exact inputs,
 commands, working directory, toolchain and logs. Label reused evidence. A successful
 smoke run supports only its exercised configurations. Scientific qualification

@@ -542,6 +542,10 @@ class Gate:
                           'Before another correction, hold a diagnosis checkpoint with the same agents: reproduce '
                           'the dispute, name the mistaken or unproven premise, and agree the next bounded change '
                           'and its acceptance (ARCHITECT.md). Closeout requires it after two unsuccessful corrections.')
+                import final_verification
+                pending = final_verification.pending_notice(self.root)
+                if pending:
+                    print('VERIFICATION: ' + pending)
                 print(f"NEXT: finish active iteration {start['id']} and run --check-done")
                 return 0
         due = team_retrospective.pending(self.root)

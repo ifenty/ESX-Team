@@ -51,6 +51,42 @@ It refuses unless `current.json` is an intact PASS whose `review_signature` equa
 the closeout record's, and the rebound record must pass the gate's receipt check.
 Never hand-edit `verification.receipt` in `issue-done.json`.
 
+## Grouped scientific suites
+
+A scientific suite that needs more than one background command (a Claude Code
+background command is capped at 2 h) is split into ordered groups in
+`esx/project.json` instead of `verification.scientific` (the two are mutually
+exclusive; an empty `scientific` list may remain):
+
+```json
+"scientific_groups": [
+  {"name": "build-and-unit", "commands": [["make", "-C", "build"], ["{python}", "tests/unit.py"]]},
+  {"name": "regression",    "commands": [["{python}", "tests/regress.py"]]}
+]
+```
+
+Names are unique and match `[a-z0-9_-]+`. **Groups must be independent**: a group
+may not depend on side effects of an earlier one, so a group that needs a build
+contains the build command itself. Run one group per background command, or all:
+
+```sh
+python3 tools/esx/final_verification.py run --review devel-loop/loop_state/review.json --owner arch --group regression
+python3 tools/esx/final_verification.py run --review devel-loop/loop_state/review.json --owner arch
+```
+
+`run` executes the groups in order, reusing every group whose own evidence is
+intact, passing and current for the same owner, then seals one aggregate record
+that the receipt and closeout cite as `scientific`. After a kill or failure,
+re-run the same command: it resumes at the group that did not pass. `run --group`
+executes only that group and seals nothing; `check` lists each group as current,
+missing or stale. A failed or interrupted group clears only its own cache pointer,
+the aggregate pointer and `final-verification/current.json`. The aggregate is
+accepted only when every group record is intact, PASS, current and owned by the
+aggregate's owner, and the groups' commands concatenated equal the configured
+suite; any stale or edited group makes it stale. A group record cannot be cited
+alone. `--next` and the Stop hook name the remaining groups and the resuming command
+while the grouped run is partly done.
+
 For Richard's independent check, use his actual runtime identity:
 
 ```sh

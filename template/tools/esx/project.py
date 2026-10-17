@@ -63,7 +63,33 @@ def config(root, ready=True):
             require(not (source == output or source.startswith(output.rstrip('/') + '/')),
                     f'output path would hide configured source/framework: {output}')
     require(isinstance(cfg.get('verification'), dict), 'verification must define named suites')
-    for suite, commands in cfg['verification'].items():
+    verification = cfg['verification']
+    if 'scientific_groups' in verification:
+        # Grouped scientific suite: ordered, independently runnable and reusable
+        # groups. The flattened command list is "the suite" for fingerprinting and
+        # for every consumer of verification.scientific, so it is stored there.
+        groups = verification['scientific_groups']
+        require(not verification.get('scientific'),
+                'verification.scientific and verification.scientific_groups are mutually exclusive; remove one')
+        require(isinstance(groups, list) and groups, 'verification.scientific_groups must be a non-empty list')
+        names, flat = set(), []
+        for group in groups:
+            require(isinstance(group, dict) and set(group) == {'name', 'commands'},
+                    'each scientific group needs exactly a name and a commands list')
+            require(isinstance(group['name'], str) and re.fullmatch(r'[a-z0-9_-]+', group['name']),
+                    f"scientific group name must match [a-z0-9_-]+: {group['name']!r}")
+            require(group['name'] not in names, f"duplicate scientific group name: {group['name']}")
+            names.add(group['name'])
+            require(isinstance(group['commands'], list) and group['commands'],
+                    f"scientific group {group['name']} needs a non-empty commands list")
+            for argv in group['commands']:
+                require(isinstance(argv, list) and argv and all(isinstance(s, str) and s for s in argv),
+                        f"scientific group {group['name']}: invalid command")
+            flat += group['commands']
+        verification['scientific'] = flat
+    for suite, commands in verification.items():
+        if suite == 'scientific_groups':
+            continue
         require(isinstance(commands, list), f'verification.{suite} must be a list of argv arrays')
         for argv in commands:
             require(isinstance(argv, list) and argv and all(isinstance(s, str) and s for s in argv), f'{suite}: invalid command')

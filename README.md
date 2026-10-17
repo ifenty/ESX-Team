@@ -281,6 +281,54 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.7.0: grouped scientific verification
+
+A scientific suite that needs more than one background command (the pilot's 71 commands take
+slightly over 2 h; a background Bash command is capped at 2 h, and a killed `final_verification.py
+run` left nothing reusable) can now be split into groups.
+
+- **Config.** `verification.scientific_groups` is an ordered list of `{name, commands}` (`name`
+  unique, `[a-z0-9_-]+`; `commands` a non-empty list of argv arrays). It is mutually exclusive with a
+  non-empty `verification.scientific` (the template's empty list may stay). The flattened commands,
+  in group and command order, are "the suite": `config()` stores them in `verification.scientific`,
+  so fingerprints, receipts and closeout checks see the same list as for a single suite.
+
+  ```json
+  "verification": {
+    "structural": [["{python}", "tools/esx/audit.py"]],
+    "scientific_groups": [
+      {"name": "build-and-unit", "commands": [["make", "-C", "build"], ["{python}", "tests/unit.py"]]},
+      {"name": "regression",    "commands": [["{python}", "tests/regress.py", "--cases", "1-30"]]},
+      {"name": "mpi",           "commands": [["{python}", "tests/regress.py", "--cases", "31-60"]]}
+    ]
+  }
+  ```
+
+- **Groups are independent.** A group may not rely on side effects of an earlier one: a group that
+  needs a build contains the build command itself. Each group is a normal `verify.py` unit (own
+  lock, log, sealed record, cache pointer, per-command timeout, signal handling) recorded with
+  `"group": NAME`. A failed or interrupted group clears only its own pointer, plus the aggregate
+  pointer and `final-verification/current.json`. A passed group is reused while its signature
+  (source, tests, configuration, toolchain) is current and its owner is the requesting owner.
+- **Running.** `final_verification.py run` runs the groups in order, reuses every intact current
+  group and seals one **aggregate** record, so re-running after a killed or failed run resumes at
+  group granularity. `run --group NAME` runs exactly that group (one background command per group)
+  and seals nothing; finish with `run`, which then executes nothing and seals the aggregate. `check`
+  adds `scientific_groups` (current, missing or stale per group). Without an active issue,
+  `verify.py --suite scientific --owner X [--group NAME]` does the same.
+- **Aggregate record** (content-addressed under `verification/`): `suite: "scientific"`, `owner`,
+  `commands` (flattened), `command_digest`, `signature` (fingerprint of the flattened suite),
+  `groups: [{name, evidence: {path, sha256}}]`, `started_at`, `finished_at`, `elapsed_seconds` (the
+  sum of the groups' own), `exit: 0`, `stable: true`. The final-verification receipt and
+  `issue-done.json` `verification.scientific` cite it, in the same shape as a single-suite record.
+  `verify.load_evidence` accepts it only if every listed group record is intact (hash, log hash),
+  PASS, stable, current, owned by the aggregate's owner, and the groups' commands concatenated equal
+  the configured flattened suite exactly (no group missing, reordered or edited). A group record
+  cited on its own is refused.
+- **Hold.** `--next` prints a `VERIFICATION:` line, and the Stop hook appends the same text to its
+  continuation, while a grouped verification is partly done: the current and remaining groups and the
+  exact `final_verification.py run` command that resumes it.
+
 ## Version 1.6.7: brief interface check, interpreter identity, pause clock
 
 - **`brief.py` refuses a brief that tells an agent to run a command the tool does not accept.**
