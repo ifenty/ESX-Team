@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 import audit
+import project
 import notifications
 import doc_contract as maintenance
 import workflow_policy as workflow
@@ -116,6 +117,11 @@ class Gate:
                  'communication': {'status': 'pending', 'detail': 'Arch will record authorized delivery or its disposition.'}}
         if diagnosis is not None:
             start['diagnosis_checkpoint'] = diagnosis
+        # Optional: start files written before 1.6.7 carry no identity and stay valid.
+        start['interpreter'] = project.interpreter_identity(self.cfg)
+        changed = self.interpreter_notice(start, hist)
+        if changed:
+            self.notices.append(changed)
         self.check_diagnosis(start, hist)
         require(not workflow.validate_workflow(policy), 'invalid workflow decision')
         previous_done = local(self.root, f'{STATE}/issue-done.json')
@@ -128,6 +134,26 @@ class Gate:
             previous_done.unlink()
         atomic_json(state, start)
         return start
+
+    @staticmethod
+    def interpreter_notice(start, history):
+        """Advisory line when the interpreter differs from the last recorded iteration's.
+
+        Compares with the newest loop_history row that carries an identity;
+        iterations recorded before 1.6.7 carry none and are skipped. Never a
+        refusal: a deliberate environment change is legitimate, an unnoticed one
+        is what failed RUNOFF-008 hours in (TEAM-ENV-INTERPRETER-DRIFT-001).
+        """
+        now_id = start.get('interpreter')
+        before = next((row['interpreter'] for row in reversed(history)
+                       if row.get('interpreter') and (row.get('id'), row.get('timestamp')) != (start.get('id'), start.get('timestamp'))),
+                      None)
+        if not now_id or not before or now_id == before:
+            return None
+        diff = [f"{key}: {before.get(key)!r} -> {now_id.get(key)!r}" for key in ('version', 'executable', 'distributions')
+                if before.get(key) != now_id.get(key)]
+        return ('INTERPRETER CHANGED since the last recorded iteration (' + '; '.join(diff) + '). Seals and baselines '
+                'computed earlier may be stale; confirm the environment is intended and run tools/esx/loop_gate.py --doctor.')
 
     def check_start(self, late_reason=None):
         with team_accounting.phase(self.root, self.read('issue-start.json')['id'], 'orientation', role='arch'):
@@ -348,6 +374,8 @@ class Gate:
         errors = workflow_records.check_milestone(self.root, done, allow_legacy=policy.get('execution_version') != 1)
         require(not errors, '; '.join(errors))
         done.setdefault('start_timestamp', start['timestamp'])
+        if start.get('interpreter'):
+            done.setdefault('interpreter', start['interpreter'])
         prior = next((row for row in json_lines(local(self.root, f'{STATE}/loop_history.jsonl'))
                       if loop_iteration.matches(start, row)), {})
         done.setdefault('closed_at', prior.get('closed_at') or now())
@@ -498,6 +526,9 @@ class Gate:
         if start_path.exists():
             start = json.loads(start_path.read_text())
             if not history or (history[-1]['id'], history[-1]['timestamp']) != (start['id'], start['timestamp']):
+                changed = self.interpreter_notice(start, history)
+                if changed:
+                    print(changed)
                 if start.get('state_version', 1) >= 2 and not loop_iteration.start_status(self.root, start)['validated']:
                     # Closeout refuses an iteration without this receipt, and the
                     # check cannot be made honestly once the work has changed the

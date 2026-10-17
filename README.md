@@ -281,6 +281,31 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.7: brief interface check, interpreter identity, pause clock
+
+- **`brief.py` refuses a brief that tells an agent to run a command the tool does not accept.**
+  It introspects each `tools/esx/<script>.py` command's flags from `--help` (and a subcommand's)
+  and raises on a missing tool or flag. Only the instructions are checked: the quoted review
+  packet and the current-seal section are history, and the generated orientation command is
+  substituted after the check, so its `--target tools/esx/...` and `--doc` values are never read
+  as commands (a flag value that is a path is skipped as well). A command span ends at a quote or
+  the next `.py`. `brief.py` also prints a stderr warning for a `path:line` citation in the design
+  that does not resolve, and the Report section states the exact footer `agent` value.
+- **Interpreter identity.** `project.interpreter_identity(cfg)` records the version, executable
+  and a digest of the installed distributions. `--prepare` stores it as an optional
+  `start['interpreter']` (older start files stay valid), copies it into the history row, and
+  prints an `INTERPRETER CHANGED` notice when it differs from the last row that carries one;
+  `--next` shows the same notice for an active iteration. Advisory, never a refusal. An
+  optional `required_imports` list in `esx/project.json` is import-checked by `audit.check`
+  (so by `loop_gate.py --doctor`), which names the modules that fail. The brief's Evidence
+  section tells a role to report a broken environment in limits with the failing import.
+- **Provider-limit pause time no longer shortens later turns.** `team_budget.record_pause`
+  keeps `{start, end, source}` intervals in the budget ledger; `loop_control.pause` and the
+  Stop hook record a `provider_limit` pause start and `clear_pause`/`AUTO_RESUME` its end.
+  `reserve` moves the scope's deadline and soft deadline by the overlap of those intervals with
+  the scope (an open one counts up to now) and `extend` starts from the moved deadline. The
+  stored deadline is unchanged, and owner pauses and pauses outside the scope shift nothing.
+
 ## Version 1.6.6: closeout and record tooling
 
 - **`workflow_records.py prepare-done --packet <review-packet.json>`** copies the packet's

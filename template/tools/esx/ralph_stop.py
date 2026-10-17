@@ -222,9 +222,29 @@ def pause_source(parsed):
     return parsed['header_fields'].get('pause_source') or 'owner'
 
 
+def record_provider_pause(root, start=None, until=None):
+    """Mirror a provider-limit pause start (start truthy) or end (default) into the budget ledger; never fails the hook.
+
+    Only for a configured project: the interval exists so team_budget.reserve can
+    move scope deadlines by it (TEAM-PAUSE-DEADLINE-CLAMP-001).
+    """
+    if not (Path(root) / 'esx/project.json').exists():
+        return
+    try:
+        import team_budget
+        moment = clock()
+        team_budget.record_pause(root, moment, None if start is not None else moment, until)
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        print(f'ESX: could not record the pause interval: {exc}', file=sys.stderr)
+
+
 def set_pause(root, state, parsed, reason, until, source):
     """Write (reason given) or clear (reason None) the pause; return the re-read state and bytes."""
     from project import atomic_bytes
+    if reason is not None and source == 'provider_limit':
+        record_provider_pause(root, start=True, until=until)
+    elif reason is None and pause_source(parsed) == 'provider_limit' and parsed['header_fields'].get('paused') == 'true':
+        record_provider_pause(root)
     header = parsed['header']
     for key in ('paused', 'pause_reason', 'paused_until', 'pause_source'):
         header = set_field(header, key, None)

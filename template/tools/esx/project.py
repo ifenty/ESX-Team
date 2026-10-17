@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -74,6 +75,13 @@ def config(root, ready=True):
         require(isinstance(argv, list) and argv and all(isinstance(s, str) and s for s in argv), 'invalid toolchain command')
     require(type(cfg.get('command_timeout_seconds')) in (int, float) and math.isfinite(cfg['command_timeout_seconds']) and cfg['command_timeout_seconds'] > 0,
             'command_timeout_seconds must be finite and positive')
+    # Modules the declared suites import; `loop_gate --doctor` checks they import under
+    # the configured interpreter, so a replaced environment fails at iteration start
+    # rather than inside a role's suite run (TEAM-ENV-INTERPRETER-DRIFT-001).
+    require(isinstance(cfg.get('required_imports', []), list)
+            and all(isinstance(x, str) and re.fullmatch(r'[A-Za-z_]\w*(\.[A-Za-z_]\w*)*', x)
+                    for x in cfg.get('required_imports', [])),
+            'required_imports must be a list of module names')
     require(isinstance(cfg.get('mirrored_paths', []), list), 'mirrored_paths must be a list')
     for entry in cfg.get('mirrored_paths', []):
         require(isinstance(entry, dict) and isinstance(entry.get('canonical'), str) and entry['canonical']
@@ -304,6 +312,35 @@ def pinned_facts(cfg):
             raise ValueError(f'configured "python" in esx/project.json cannot run ({path}): {problem}')
         _PINNED[path] = json.loads(run.stdout)
     return _PINNED[path]
+
+
+_DISTRIBUTIONS = {}
+
+_DISTRIBUTION_PROBE = ('import hashlib, importlib.metadata as m; '
+                       'print(hashlib.sha256("\\n".join(sorted(set((d.metadata["Name"] or "") + "==" + (d.version or "") '
+                       'for d in m.distributions()))).encode()).hexdigest())')
+
+
+def interpreter_identity(cfg):
+    """Who the configured interpreter is: version, executable and installed distributions.
+
+    The version comes from pinned_facts (the interpreter the evidence fingerprint
+    describes); the executable path is the one commands will run, and the digest
+    covers the installed distribution set, measured by one subprocess probe per
+    process. An environment replaced at the same path changes the digest, not the
+    path (TEAM-ENV-INTERPRETER-DRIFT-001). The digest is None when the probe
+    cannot run: this identity is advisory and must never block a gate.
+    """
+    facts = pinned_facts(cfg)
+    path = interpreter(cfg)
+    if path not in _DISTRIBUTIONS:
+        try:
+            run = subprocess.run([path, '-c', _DISTRIBUTION_PROBE], capture_output=True, text=True, timeout=60)
+            _DISTRIBUTIONS[path] = run.stdout.strip() if run.returncode == 0 and run.stdout.strip() else None
+        except (OSError, subprocess.SubprocessError):
+            _DISTRIBUTIONS[path] = None
+    return {'version': facts['version'] if facts else sys.version, 'executable': path,
+            'distributions': _DISTRIBUTIONS[path]}
 
 
 def measured_variables(cfg):
