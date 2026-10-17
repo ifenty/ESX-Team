@@ -91,6 +91,22 @@ def config(root, ready=True):
             'archive_paths must be a list of project paths')
     for name in cfg.get('archive_paths', []):
         local(root, name)
+    # Documentation kept outside the tracked footprint (for example a vendored model's
+    # doc/ tree). It joins the non-scientific inventory, so candidate capture and the
+    # stale-figure sweeps see it, but never the scientific one: editing it cannot
+    # require a scientific_change.
+    require(isinstance(cfg.get('documentation_paths', []), list)
+            and all(isinstance(x, str) and x for x in cfg.get('documentation_paths', [])),
+            'documentation_paths must be a list of project paths')
+    science = cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']
+    for name in cfg.get('documentation_paths', []):
+        local(root, name)
+        for other in science:
+            require(not nested(name, other) and not nested(other, name),
+                    f'documentation path overlaps a source/test/configuration root: {name} and {other}')
+        for output in cfg['output_paths']:
+            require(not nested(name, output) and not nested(output, name),
+                    f'documentation path overlaps an output path: {name} and {output}')
     if ready:
         for key in ('project_id', 'project_name', 'mission'):
             require(isinstance(cfg.get(key), str) and cfg[key].strip(), f'complete esx/project.json: {key}')
@@ -107,6 +123,11 @@ def config(root, ready=True):
         for name in ('esx/project_profile.md', 'docs/code_map.md'):
             require('TODO_ESX' not in local(root, name).read_text(), f'complete {name}')
     return cfg
+
+
+def nested(name, root_path):
+    """Whether ``name`` is ``root_path`` or lies beneath it."""
+    return name == root_path or name.startswith(root_path.rstrip('/') + '/')
 
 
 def mutable_loop_path(name):
@@ -156,7 +177,7 @@ def selected(name, cfg, scientific=False):
     if any(name == p or name.startswith(p.rstrip('/') + '/') for p in cfg['output_paths']):
         return False
     roots = cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']
-    roots += ['esx/project.json'] if scientific else FRAMEWORK_PATHS
+    roots += ['esx/project.json'] if scientific else FRAMEWORK_PATHS + cfg.get('documentation_paths', [])
     return any(name == p or name.startswith(p.rstrip('/') + '/') for p in roots)
 
 
@@ -168,7 +189,7 @@ def inventory_paths(root, cfg, scientific=False):
     """
     root = Path(root).resolve()
     roots = cfg['source_paths'] + cfg['test_paths'] + cfg['configuration_paths']
-    roots += ['esx/project.json'] if scientific else FRAMEWORK_PATHS
+    roots += ['esx/project.json'] if scientific else FRAMEWORK_PATHS + cfg.get('documentation_paths', [])
     names = set()
     for name in roots:
         path = local(root, name)

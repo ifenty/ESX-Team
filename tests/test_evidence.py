@@ -310,9 +310,11 @@ class CompletionTests(unittest.TestCase):
         prior.update(outcome='partial', verification={'status': 'executed', 'result': 'PASS'})
         prior['subagents']['richard'][0]['report_digest'] = 'Measured earlier review. ' * 15
         d = records.prepare_done(start(), [r1, r2], [select(r2)], prior)
-        self.assertEqual([r['dispatch_event_id'] for r in d['subagents']['richard']], ['r1', 'r2'])
-        self.assertEqual(d['subagents']['richard'][0]['report_digest'],
-                         prior['subagents']['richard'][0]['report_digest'])
+        # 1.6.6: the earlier iteration's completed review is history, not a current subagent
+        # (the gate refuses it as a current approval); the resumed agent's new completion stays.
+        self.assertEqual([r['dispatch_event_id'] for r in d['subagents']['richard']], ['r2'])
+        self.assertEqual([(c['dispatch_event_id'], c['disposition']) for c in d['preparation']['prior']['completions']],
+                         [('r1', 'history_only')])
         self.assertEqual(d['verification']['status'], 'pending')
 
     def test_historical_failed_turns_retain_only_exact_status_and_identity(self):
@@ -327,7 +329,9 @@ class CompletionTests(unittest.TestCase):
                 prior = {**start(), 'subagents': {'bob': [entry]}}
                 final = completion(role='bob', event='successful-continuation')
                 draft = records.prepare_done(start(), [failed, final], [select(final)], prior)
-                self.assertEqual(draft['subagents']['bob'][0], dict(entry, attempt={'ts': failed['ts']}))
+                # A retained earlier-iteration turn stays in subagents (the gate resolves it there), marked as carried.
+                self.assertEqual(draft['subagents']['bob'][0],
+                                 dict(entry, attempt={'ts': failed['ts']}, carried_from_prior_iteration=True))
                 self.assertNotIn('verdict', draft['subagents']['bob'][0])
                 self.assertFalse(any(item.startswith('failed-turn:') for item in draft['preparation']['pending']))
 

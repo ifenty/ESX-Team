@@ -43,9 +43,36 @@ def announcement(record):
             require(communication.get('receipt'), 'successful communication needs its returned receipt/link')
 
 
+def kind_contradiction(root, cfg, kind, targets):
+    """Why `kind` cannot be right for work owned by ``targets[0]``, or None.
+
+    Closeout refuses a non-scientific kind once the scientific signature has
+    moved. An owning target inside that inventory makes the move LIKELY, not
+    certain: an investigation reads its owner without changing it, so this only
+    informs; closeout, which measures the files that actually changed, decides.
+    It was found late once: a harness_change prepared with all three targets under
+    tests/ was refused only at --check-done, after two implementation rounds and
+    four reviews (TEAM-PREPARE-KIND-UNCHECKED-001).
+
+    Only the OWNING target -- the first, by the convention --prepare already
+    states -- is held to this: a documentation issue may orient on a test as its
+    consumer without editing it, and a notice for that would be noise.
+    """
+    if kind == 'scientific_change' or not targets:
+        return None
+    from project import inventory_paths
+    owning = targets[0].split('::', 1)[0]
+    if owning not in set(inventory_paths(Path(root), cfg, True)):
+        return None
+    return (f'the owning target {owning} is in the scientific inventory, so changing it requires --kind '
+            f'scientific_change, not {kind}; closeout would refuse {kind} once the scientific signature moves. '
+            'Name the owning symbol first if it is a different file')
+
+
 class Gate:
     def __init__(self, root, ledger_overrides=None):
         self.ledger_overrides = ledger_overrides
+        self.notices = []
         self.root = Path(root).resolve()
         self.cfg = config(self.root)
 
@@ -59,6 +86,12 @@ class Gate:
         opened, _, _ = validate_records(self.root, self.ledger_overrides)
         require(issue in opened and opened[issue]['state'] != 'blocked', 'select an actionable open issue')
         require(opened[issue]['anchors'], 'file source/test anchors in the issue before preparing work')
+        # A NOTICE, never a refusal: whether the work will EDIT its owning target is
+        # unknown here, and an investigation legitimately orients on a scientific
+        # source it only reads. Closeout remains the authoritative refusal.
+        contradiction = kind_contradiction(self.root, self.cfg, kind, targets)
+        if contradiction:
+            self.notices.append('KIND NOTICE: ' + contradiction + '. Ignore this if the work only reads it.')
         hist = json_lines(local(self.root, f'{STATE}/loop_history.jsonl'))
         state = local(self.root, f'{STATE}/issue-start.json')
         if state.exists():
@@ -259,6 +292,8 @@ class Gate:
                                                  start['maintenance']['baseline'], role, fresh=False)
         continuity = done.get('agent_continuity', {})
         require(isinstance(continuity, dict), 'agent_continuity must be an object')
+        parallel_errors = workflow.validate_parallel(continuity)
+        require(not parallel_errors, '; '.join(parallel_errors))
         for role in ('bob', 'richard'):
             if agents.get(role):
                 assignment = continuity.get(role, [])
@@ -266,7 +301,10 @@ class Gate:
                         f'record stable {role} runtime identities: agent_continuity.{role} must list exactly the '
                         f'dispatch_ids already in subagents.{role}, originals first: {sorted(agents[role])}')
                 initial_count = 1 if role == 'bob' else max(1, policy['minimum_reviewers'])
+                parallel = workflow.parallel_ids(done, records, role)
                 for replacement_id in assignment[initial_count:]:
+                    if replacement_id in parallel:
+                        continue  # declared parallel and dispatched for this iteration: not a replacement
                     require(any(isinstance(r, dict) and r.get('role') == role
                                 and r.get('new_id') == replacement_id and r.get('old_id') in agents[role]
                                 and r.get('old_id') != replacement_id and r.get('reason')
@@ -575,7 +613,7 @@ def main():
         elif args.prepare:
             result = gate.prepare(args.prepare, args.kind, args.risk, args.owner, args.priority,
                                   args.map, args.target, args.doc, args.use, args.diagnosis, args.budget_kind)
-            for notice in gate.lesson_notices():
+            for notice in gate.notices + list(gate.lesson_notices()):
                 print(notice, file=sys.stderr)
         elif args.check_start:
             result = gate.check_start(args.late_reason)

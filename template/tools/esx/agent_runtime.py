@@ -178,6 +178,70 @@ def duplicate_completion(root, agent_id, footer):
     return None
 
 
+def turn_status(root, agent_id, since):
+    """Read-only: is a "failed" notification for this agent's turn already answered?
+
+    A `failed` task-notification can reach the coordinator for a turn the agent's
+    own session completed in full (TEAM-FALSE-FAILURE-NOTIFICATION-001); resuming it
+    then repeats finished work. Verdict ADVISORY when the dispatch log holds a
+    completed event WITH a footer for the agent at or after ``since`` (the event id
+    is cited). Otherwise the agent's transcript, as recorded in the dispatch log
+    (`agent_transcript_path`, stored as `transcript`), is read; a final report there
+    carrying a footer is also ADVISORY, but names no event, because the stop hook
+    never recorded it. Anything else is RESUME. The witness that decided is named.
+    """
+    try:
+        floor = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"invalid --since timestamp: {since}") from exc
+    if floor.tzinfo is None:
+        raise ValueError("--since must include its timezone (for example 2026-10-16T10:00:00+00:00)")
+    log = local(Path(root), "devel-loop/loop_state/dispatch_log.jsonl")
+    rows = []
+    for line in log.read_text().splitlines() if log.is_file() else []:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("agent_id") == agent_id:
+            rows.append(row)
+
+    def at_or_after(row):
+        try:
+            stamp = datetime.fromisoformat(str(row.get("ts")).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return stamp.tzinfo is not None and stamp >= floor
+
+    later = [r for r in rows if at_or_after(r)]
+    result = {"agent_id": agent_id, "since": str(since), "log_rows": len(rows), "rows_since": len(later)}
+    done = [r for r in later if r.get("status") == "completed" and isinstance(r.get("footer"), dict) and r["footer"]]
+    if done:
+        # A repeated stop of one report points at the completion it repeats.
+        row = next((r for r in done if not r.get("duplicate_of")), done[0])
+        return dict(result, verdict="ADVISORY", witness="dispatch_log", event_id=row.get("duplicate_of") or row.get("event_id"),
+                    detail="a completed dispatch-log event with a footer exists at or after --since; do not resume, "
+                           "cite that event in the packet")
+    transcripts = [r.get("agent_transcript_path") or r.get("transcript") for r in reversed(rows)]
+    path = next((t for t in transcripts if t), None)
+    if later and not any(r.get("status") == "completed" for r in later):
+        why = "the log has only failed or incomplete rows for the agent since --since"
+    elif later:
+        why = "the log's completed row since --since has no footer"
+    else:
+        why = "the log has no row for the agent at or after --since"
+    report = transcript_report(path) if path else None
+    footer = footer_from(report) if report else None
+    if footer:
+        return dict(result, verdict="ADVISORY", witness="agent_transcript", event_id=None, transcript=str(path),
+                    detail=f"{why}, but the agent's own transcript ends in a report with a footer; its work finished and "
+                           "the stop hook recorded no completion (inspect hook-doctor) - do not resume it for the work")
+    return dict(result, verdict="RESUME", witness="agent_transcript" if path else "dispatch_log",
+                event_id=None, transcript=str(path) if path else None,
+                detail=f"{why}; " + ("its transcript holds no final report with a footer" if path
+                                     else "no transcript path is recorded"))
+
+
 def pause_for_provider_limit(root, limit, who):
     """Pause the parent loop when a role turn was refused for a usage limit.
 
@@ -1229,6 +1293,9 @@ def main(argv=None):
     probe.add_argument("--timeout", type=float, default=55)
     sub.add_parser("fingerprint")
     sub.add_parser("probe-status")
+    turn = sub.add_parser("turn-status", help="read-only: is a failed notification already answered by a completed turn?")
+    turn.add_argument("--agent-id", required=True)
+    turn.add_argument("--since", required=True, help="UTC-aware timestamp of the failed notification")
     sub.add_parser("hook")
     doctor = sub.add_parser("hook-doctor")
     doctor.add_argument("--event", help="exact dispatch event for measured process diagnostics")
@@ -1255,6 +1322,9 @@ def main(argv=None):
             state = json.loads((session_path(root, args.session) / "session.json").read_text())
             contract = runtime_contract(root, args.claude, None if state["probe"] else state["role"])
             value = runtime_recovery.assess(root, state, contract, json.loads(input_file(root, args.judgment).read_text()))
+        elif args.command == "turn-status":
+            print(json.dumps(turn_status(root, args.agent_id, args.since), indent=2))
+            return 0
         elif args.command == "fingerprint":
             value = runtime_contract(root, args.claude)
         elif args.command == "status":

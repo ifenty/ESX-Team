@@ -14,7 +14,7 @@ import sys
 
 from doc_inventory import MAP, changes, digest, excerpt, git, local, snapshot
 
-from project import STATE, named_sha
+from project import STATE, config, named_sha
 STORE = f'{STATE}/maintenance'
 ROLES = ('arch', 'bob', 'richard', 'scout', 'prober', 'bisector', 'auditor')
 
@@ -94,6 +94,12 @@ def baseline(root, issue, git_base=None, reason=None):
     payload = envelope('baseline', issue)
     commit = git(root, 'rev-parse', '--verify', git_base + '^{commit}').decode().strip() if git_base else None
     payload.update(files=snapshot(root, commit), recovery={'git_base': commit, 'requested_ref': git_base, 'reason': reason})
+    # The documentation roots in force are part of what this baseline measured; a
+    # later configuration change would make the closeout comparison meaningless.
+    # Recorded only when configured, so projects without the key keep identical baselines.
+    configured = config(root, ready=False).get('documentation_paths')
+    if configured:
+        payload['scope'] = {'documentation_paths': list(configured)}
     if not commit:
         from issue_candidates import capture, load as load_candidate
         source_ref = capture(root, issue)
@@ -656,7 +662,12 @@ def check_start(root, start):
     try:
         state = start.get('maintenance')
         require(isinstance(state, dict), 'issue-start.maintenance is required before implementation')
-        load(root, state.get('baseline'), 'baseline', start.get('id'))
+        recorded = load(root, state.get('baseline'), 'baseline', start.get('id'))
+        was = sorted((recorded.get('scope') or {}).get('documentation_paths', []))
+        now_paths = sorted(config(root, ready=False).get('documentation_paths', []))
+        require(was == now_paths,
+                f'documentation_paths changed since this issue baseline was captured (baseline {was}, '
+                f'configured {now_paths}); change it between issues, or restore the configured list')
         original = original_baseline(root, start.get('id'))
         require(not original or state.get('baseline') == original,
                 'issue-start must preserve the original maintenance baseline across iterations')

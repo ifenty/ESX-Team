@@ -21,6 +21,7 @@ Read the active lessons index; open detailed evidence only when its trigger appl
 
 Bob implements; Richard reviews independently. Scout, Prober, Bisector and Auditor
 have bounded specialist duties. Keep runtime identities through corrections.
+Before resuming an agent after a `failed` notification, run `tools/esx/agent_runtime.py turn-status` (see retained execution).
 Use [retained execution](../devel-loop/execution.md) to dispatch, resume and deliver
 peer findings, and [the framework map](../docs/esx_framework_map.md) to locate the
 workflow mechanisms without repeatedly reading their entire implementations.

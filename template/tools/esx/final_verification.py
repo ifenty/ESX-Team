@@ -247,20 +247,29 @@ def run(root, review, owner, fresh=False):
         fcntl.flock(stream, fcntl.LOCK_EX)
         identity = ready(root, review, owner)
         index = local(root, f'{STATE}/final-verification/current.json')
+        # Why reuse was not possible, kept for the operator: a silent fall-through to
+        # a multi-hour fresh run is otherwise indistinguishable from "nothing matched"
+        # (TEAM-FINALVERIFY-FINGERPRINT-REUSE-001). Behaviour is unchanged.
+        reuse_refused = []
+        if not fresh and not index.exists():
+            reuse_refused.append('current.json missing')
         if not fresh and index.exists():
             try:
                 old_ref = json.loads(index.read_text())
                 packet = dict(review, verification={'receipt': old_ref, 'scientific': json_file(root, old_ref['path']).get('scientific')})
                 old = check_receipt(root, packet)
                 return {'status': 'REUSED EVIDENCE', 'receipt': old_ref, 'scientific': old['scientific']}
-            except (ValueError, OSError, KeyError, TypeError):
-                pass
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                reuse_refused.append(f'check_receipt refused: {type(exc).__name__}: {exc}')
             # Separate fresh acceptance from the immutable scientific execution.
             # Reuse requires current approvals and matching source/config/toolchain.
             try:
                 return _reissue(root, review, owner, identity, index)
-            except (ValueError, OSError, KeyError, TypeError):
-                pass
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                reuse_refused.append(f'_reissue refused: {type(exc).__name__}: {exc}')
+        if reuse_refused:
+            print('ESX final verification: no matching execution was reused, so the scientific suite runs fresh. Reasons: '
+                  + ' | '.join(reuse_refused), file=sys.stderr, flush=True)
         index.unlink(missing_ok=True)
         token = object()
         _LEASES[token] = (review, owner, identity)
@@ -299,7 +308,8 @@ def run(root, review, owner, fresh=False):
         atomic_json(local(root, ref['path']), record)
         atomic_json(index, ref)
         atomic_json(local(root, f'{STATE}/final-verification/latest.json'), ref)
-        return {'status': 'EXECUTED PASS', 'receipt': ref, 'scientific': result['evidence']}
+        return {'status': 'EXECUTED PASS', 'receipt': ref, 'scientific': result['evidence'],
+                'reuse_refused': reuse_refused}
 
 
 def main():

@@ -197,8 +197,11 @@ class ReiterationCloseoutTests(unittest.TestCase):
             code = records.main(['--root', str(self.root), 'prepare-done', '--select', str(selection), '--output', 'draft.json'])
         self.assertEqual(code, 0)
         draft = json.loads(out.read_text())
-        self.assertEqual(draft['preparation']['prior'], {'path': f'{project.STATE}/closed/issue-done-a.json',
-                                                         'located': 'automatic'})
+        # 1.6.6 adds the earlier completions ('completions') next to the located path.
+        prior = draft['preparation']['prior']
+        self.assertEqual({k: prior[k] for k in ('path', 'located')},
+                         {'path': f'{project.STATE}/closed/issue-done-a.json', 'located': 'automatic'})
+        self.assertEqual([c['dispatch_event_id'] for c in prior['completions']], ['E0'])
         self.assertEqual([e['dispatch_event_id'] for e in draft['subagents']['bob']], ['E0', 'E1'])
         self.assertEqual(draft['agent_continuity']['replacements'][0]['old_id'], 'B0')
         self.assertEqual(draft['agent_continuity']['replacements'][0]['new_id'], 'B1')

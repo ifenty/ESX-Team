@@ -126,6 +126,7 @@ and triggers to the relevant role definitions.
 | `external_inputs` | Explicit external input files; their actual bytes and resolved identities are hashed |
 | `mirrored_paths` | Optional: `{"canonical": path, "mirrors": [path, ...]}` pairs for files a build/compile step needs its own local copy of (no shared-import mechanism available); `tools/esx/audit.py` flags any mirror whose bytes have drifted from its canonical source |
 | `archive_paths` | Optional: paths holding superseded documentation kept for provenance. `tools/esx/audit.py` skips instruction-link checking beneath them, because their links describe a layout that no longer exists. A configured scientific root always wins, so real source/tests/configuration never become unchecked by being listed here |
+| `documentation_paths` | Optional: documentation outside the tracked footprint (for example a vendored model's `doc/`). It joins candidate capture, the stale-figure sweeps and the non-scientific signature, never the scientific one. It may not lie under or contain a source, test or configuration root, or overlap `output_paths`. The issue baseline stores the list; change it between issues |
 | `environment_variables` | Environment values relevant to reproducibility; do not list credential variables |
 | `toolchain_commands` | Foreground argv arrays reporting the actual compiler/interpreter/library environment |
 | `command_timeout_seconds` | Maximum foreground command duration; choose for the declared workflow |
@@ -279,6 +280,37 @@ Arch sends through the authenticated provider tool and records actual receipts o
 concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
+
+## Version 1.6.6: closeout and record tooling
+
+- **`workflow_records.py prepare-done --packet <review-packet.json>`** copies the packet's
+  `candidate`, `map_delta` and `maintenance.documentation`/`orientation` verbatim (the start's
+  baseline is kept) and fills `agent_continuity.bob`/`richard` from the selected completions, so
+  the draft's pending list holds only judgments. `loop_lifecycle.py prepare-done` also lists the
+  stable identities when its packet lacks them.
+- **Earlier iterations' reviews are history, not current approvals.** A completed reviewer turn
+  from another iteration is listed under `preparation.prior.completions` and kept out of
+  `subagents`, where the gate refuses it as a current review. What the gate does resolve
+  through `subagents` stays there, marked `carried_from_prior_iteration`: failed turns (an
+  unreferenced failed reviewer is a missing completion) and non-reviewer completions (continuity
+  and replacement identities).
+- **Closeout record helpers** in `loop_lifecycle.py`, which edit `issue-done.json` through the
+  atomic writer and validate like the closeout doctor: `add-replacement`, `add-parallel` and
+  `amend-kind`. A reviewer declared in `agent_continuity.parallel` (`{role, id, reason}`) and found
+  in the dispatch log for this issue and iteration is no longer an unexplained replacement in
+  `--closeout-doctor`, `--check-done` or the replacement draft; a declaration alone explains nothing.
+- **Kind contradictions surface early.** `--prepare` prints a KIND NOTICE when the owning target
+  is in the scientific inventory; the PostToolUse `records` hook prints one line when an edit
+  under source, tests or configuration paths will force a kind amendment; the
+  `KIND_AMENDMENT_REQUIRED` finding names the moved files.
+- **`documentation_paths`** (optional list in `esx/project.json`) puts documentation outside the
+  tracked footprint into candidate capture and the non-scientific signature, never the scientific
+  one. The issue baseline records the list and `check_start` refuses a changed list.
+- **`agent_runtime.py turn-status --agent-id X --since TS`** (read-only) answers ADVISORY or
+  RESUME for a `failed` notification, from the dispatch log first, then the agent transcript, and
+  names the witness.
+- **`final_verification.py run` says why it did not reuse** an execution: the reasons print to
+  stderr and are returned as `reuse_refused`; reuse itself is unchanged.
 
 ## Version 1.6.5: smaller failures and clearer messages
 
