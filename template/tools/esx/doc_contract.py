@@ -14,7 +14,7 @@ import sys
 
 from doc_inventory import MAP, changes, digest, excerpt, git, local, snapshot
 
-from project import STATE
+from project import STATE, named_sha
 STORE = f'{STATE}/maintenance'
 ROLES = ('arch', 'bob', 'richard', 'scout', 'prober', 'bisector', 'auditor')
 
@@ -55,7 +55,8 @@ def load(root, ref, kind, issue):
     require(isinstance(ref, dict), f'{kind} evidence reference is required')
     sha, name = ref.get('sha256'), ref.get('path')
     require(isinstance(sha, str) and len(sha) == 64 and name == f'{STORE}/{sha}.json',
-            f'{kind} must reference a content-addressed maintenance artifact')
+            f'{kind} must reference a content-addressed maintenance artifact: the path names '
+            f'{named_sha(name)} but sha256 is {sha}')
     payload = json.loads(evidence_path(root, name).read_text())
     require(digest(payload) == sha, f'{kind} evidence hash mismatch')
     require(isinstance(payload, dict), f'{kind} evidence must be an object')
@@ -843,6 +844,14 @@ def figure_pattern(old):
     return re.compile(r'(?<![0-9A-Za-z_.,])(?:' + body + r')(?![0-9A-Za-z_]|[.,][0-9])')
 
 
+def bare_figure_warnings(figures):
+    """Warn about a 1-2 digit bare number: it matches namelist values and constants, not the finding."""
+    import re
+    return [f"figure {row['old']!r} is a bare small number and will match unrelated values; write it as in "
+            "prose with its words or unit (\"46 rules\", \"26-41 m\")"
+            for row in figures if re.fullmatch(r'\d{1,2}', row['old'])]
+
+
 def stale_lines(root, figures, limit=200):
     """Every inventoried line that still contains a superseded figure.
 
@@ -870,7 +879,7 @@ def stale_lines(root, figures, limit=200):
                     hits.append({'figure': row['old'], 'new': row['new'], 'note': row['note'],
                                  'path': name, 'line': number, 'text': line.strip()[:240]})
     return {'figures': len(figures), 'lines': len(hits), 'hits': hits[:limit],
-            'truncated': max(len(hits) - limit, 0)}
+            'truncated': max(len(hits) - limit, 0), 'warnings': bare_figure_warnings(figures)}
 
 
 NAVIGATE_EXAMPLE = '''example:
@@ -955,6 +964,8 @@ def main():
                 parser.error('give --issue or --figures')
             table = args.figures if args.figures else local(args.root, figures_path(args.issue))
             result = stale_lines(args.root, read_figures(table), args.limit)
+            for warning in result['warnings']:
+                print('documentation contract: warning: ' + warning, file=sys.stderr)
         elif args.command == 'check-orientation':
             validate_orientation(args.root, args.receipt, args.issue, args.baseline, args.role)
             result = {'valid': True, 'evidence': 'reused', 'orientation': args.receipt}

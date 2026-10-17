@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import signal
 import threading
 from pathlib import Path
@@ -17,7 +18,7 @@ import time
 import uuid
 
 from project import (STATE, atomic_json, command, config, digest, environment,
-                     file_hash, json_file, local, now, require, source_signature)
+                     file_hash, json_file, local, named_sha, now, require, source_signature)
 
 
 class RunInterrupted(ValueError):
@@ -82,15 +83,67 @@ def load_evidence(root, ref):
             "own; run it through verify.py (e.g. 'verify.py --suite focused --owner <id> --fresh') and cite that "
             "command's own returned evidence reference instead")
     sha = ref.get('sha256')
-    require(ref.get('path') == f'{STATE}/verification/{sha}.json', 'invalid verification artifact path')
+    require(ref.get('path') == f'{STATE}/verification/{sha}.json',
+            f"invalid verification artifact path: the path names {named_sha(ref.get('path'))} but sha256 is {sha}")
     record = json_file(root, ref['path'])
     require(digest(record) == sha, 'verification artifact was modified')
     require(record.get('exit') == 0 and type(record.get('exit')) is int and record.get('stable') is True,
             'verification did not finish successfully on a stable candidate')
     require(record.get('commands'), 'verification ran no commands')
-    require(record['signature'] == fingerprint(root, record['suite'], record['commands']), 'verification evidence is stale')
+    require(record['signature'] == fingerprint(root, record['suite'], record['commands']),
+            f"verification evidence is stale (sealed {ref['path']}, suite {record['suite']}, owner "
+            f"{record.get('owner')}); rerun: {rerun_command(record)}")
     require(file_hash(local(root, record['log'])) == record['log_sha256'], 'verification log is missing or modified')
     return record
+
+
+def rerun_command(record):
+    """The command line that reproduces a record's suite under its owner."""
+    argv = ['python3', 'tools/esx/verify.py', '--suite', record['suite'], '--owner', str(record.get('owner')), '--fresh']
+    if record['suite'] == 'focused' and len(record['commands']) == 1:
+        argv += ['--command', json.dumps(record['commands'][0])]
+    return ' '.join(shlex.quote(a) for a in argv)
+
+
+def stale_evidence(root, owner):
+    """The owner's latest record per suite and commands whose signature differs from the current fingerprint."""
+    root = Path(root)
+    latest = {}
+    for path in sorted((root / STATE / 'verification').glob('*.json')):
+        if not re.fullmatch(r'[0-9a-f]{64}', path.stem):
+            continue
+        try:
+            record = json.loads(path.read_text())
+            if record.get('owner') != owner or digest(record) != path.stem:
+                continue
+            key = digest([record['suite'], record['commands']])
+            if key not in latest or record['finished_at'] > latest[key][1]['finished_at']:
+                latest[key] = (path, record)
+        except (ValueError, OSError, KeyError, TypeError, AttributeError):
+            continue
+    stale = []
+    for path, record in latest.values():
+        try:
+            current = fingerprint(root, record['suite'], record['commands'])
+        except (ValueError, OSError, KeyError, subprocess.SubprocessError):
+            continue
+        if record['signature'] != current:
+            stale.append({'evidence': {'path': f'{STATE}/verification/{path.name}', 'sha256': path.stem},
+                          'suite': record['suite'], 'finished_at': record['finished_at'],
+                          'rerun': rerun_command(record)})
+    return stale
+
+
+def intact_owner(root, ref):
+    """Owner recorded in an unmodified evidence file, or None; freshness is not judged here."""
+    try:
+        sha = ref.get('sha256')
+        if ref.get('path') != f'{STATE}/verification/{sha}.json':
+            return None
+        record = json_file(root, ref['path'])
+        return record.get('owner') if digest(record) == sha else None
+    except (ValueError, OSError, KeyError, TypeError, AttributeError):
+        return None
 
 
 def run(root, suite, owner, fresh=False, override=None, _lease=None):
@@ -147,12 +200,13 @@ def _run(root, suite, owner, fresh, override):
             stream.flush()
             try:
                 rc = execute(command(argv, cfg), root, stream, cfg.get('command_timeout_seconds', 3600))
+            except (KeyboardInterrupt, InterruptedError) as exc:
+                # First: InterruptedError is an OSError, and a signal is not a failure to launch.
+                stream.write('INTERRUPTED ' + repr(exc) + '\n')
+                rc, interrupted = 130, exc
             except (OSError, subprocess.TimeoutExpired) as exc:
                 stream.write(str(exc) + '\n')
                 rc, timed_out = 124, True
-            except (KeyboardInterrupt, InterruptedError) as exc:
-                stream.write('INTERRUPTED ' + repr(exc) + '\n')
-                rc, interrupted = 130, exc
             if rc != 0:
                 break
     try:
@@ -187,31 +241,37 @@ def _run(root, suite, owner, fresh, override):
 
 def execute(argv, root, stream, timeout):
     """Bound a complete process group and remove descendants on every exit path."""
-    process = subprocess.Popen(argv, cwd=root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
     previous = {}
+    process = None
     def interrupt(signum, frame):
         raise InterruptedError(f'verification received signal {signum}')
+    # Handlers go in before the child starts: a signal in between must interrupt
+    # the run (and leave its record), not kill the runner.
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             previous[sig] = signal.signal(sig, interrupt)
     try:
+        process = subprocess.Popen(argv, cwd=root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         return process.wait(timeout=timeout)
     finally:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=0.5)
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
+            if process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    pass
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 def main():

@@ -26,6 +26,11 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def named_sha(path):
+    """The hash a content-addressed artifact path names (its file stem), for refusal messages."""
+    return Path(str(path)).stem
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
@@ -141,6 +146,10 @@ def selected(name, cfg, scientific=False):
     if EXCLUDED_PARTS.intersection(Path(name).parts) or name.endswith(('.pyc', '.pyo')):
         return False
     if mutable_loop_path(name):
+        return False
+    # An owner's permission approval rewrites this file; it must not strand a seal.
+    if name == '.claude/settings.local.json' and not any(
+            name == p or name.startswith(p.rstrip('/') + '/') for p in science_roots):
         return False
     if name == '.claude/worktrees' or name.startswith('.claude/worktrees/'):
         return False

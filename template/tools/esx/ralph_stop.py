@@ -609,7 +609,9 @@ def _step_locked(root, hook_input):
         # no ending. A pending cancel is kept and takes effect after the resume.
         reason, until = paused
         when = ('until ' + dt.datetime.fromtimestamp(until, dt.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-                if until is not None else 'until /esx-loop resumes it')
+                if until is not None else
+                'until the usage limit resets; it resumes by itself on the next working turn, or run /esx-loop'
+                if pause_source(parsed) == 'provider_limit' else 'until /esx-loop resumes it')
         log(root, 'PAUSED', n, f'{reason}; {when}; stop allowed, iteration not advanced')
         return {'systemMessage': f'ESX loop paused at iteration {n}/{limit} ({reason}), {when}. Nothing is wrong.'}
     cancelled = cancel_request(parsed)

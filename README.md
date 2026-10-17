@@ -280,6 +280,29 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.6.5: smaller failures and clearer messages
+
+- **A signal never kills a verification run unrecorded.** `verify.py` installs its
+  SIGINT/SIGTERM/SIGHUP handlers before it starts the child and restores them on
+  every exit path, so a signal in between leaves an `interrupted` record. An
+  `InterruptedError` is now handled before the launch-failure `OSError` clause, so
+  an interrupted run is recorded as exit 130, not as a timeout (124).
+- **Messages name what is wrong.** The automatic-pause message for a provider limit
+  says the loop resumes by itself when the usage limit resets (next working turn, or
+  `/esx-loop`). A mistyped evidence or documentation reference names both values
+  ("the path names X but sha256 is Y"). A stale record owned by another agent now
+  yields both the staleness and the owner error. The stale message names the sealed
+  record and the exact rerun command; `verify.stale_evidence(root, owner)` lists an
+  owner's stale records with suite and rerun command.
+- **Provider limits are stored for any unfinished subagent turn**, including one with
+  a partial footer, not only footer-less ones.
+- **Bare small figures warn.** A registered 1-2 digit bare figure is reported as a
+  warning by `doc_contract.py stale` and the brief, which now asks for figures written
+  as in prose ("46 rules", "26-41 m").
+- **`.claude/settings.local.json` is outside the acceptance signature**, so an
+  owner's permission approval no longer strands a seal (unless the file lies under an
+  explicit source, test or configuration root; `.claude/settings.json` stays in).
+
 ## Version 1.6.4: the loop holds during a long verification run instead of advancing
 
 - **A running final verification no longer spends the iteration budget.** The Stop

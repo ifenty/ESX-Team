@@ -219,11 +219,11 @@ def stop_record(root, event, *, transport="native_subagent"):
     footer = footer_from(message)
     status, error = "completed", None
     limited = None
-    if footer is None:
-        # A subagent the provider refused for a usage limit ends on the CLI's synthetic record.
-        import ralph_stop
-        if ralph_stop.provider_turn(event.get("agent_transcript_path")) == "limited":
-            limited = {"limit_type": None, "reset_at": None}
+    # A subagent the provider refused for a usage limit ends on the CLI's synthetic record, whether or
+    # not it had written a (partial) footer before, so every turn is checked, not only footer-less ones.
+    import ralph_stop
+    if ralph_stop.provider_turn(event.get("agent_transcript_path")) == "limited":
+        limited = {"limit_type": None, "reset_at": None}
     if limited:
         status, error = "failed", "provider usage limit"
     elif event.get("is_error") or event.get("error"):

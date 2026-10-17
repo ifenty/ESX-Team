@@ -133,7 +133,8 @@ WORKING_RULES = {
            'files you did not otherwise touch (READMEs, contracts, validation reports), and correct them.\n'
            '- When your change replaces a measured figure or a reading of one, add a row for it to '
            'devel-loop/loop_state/figures-ISSUE.tsv (old<TAB>new<TAB>note) and, before sealing, run '
-           '`doc_contract.py stale --issue ISSUE` and deal with every line it lists.\n'
+           '`doc_contract.py stale --issue ISSUE` and deal with every line it lists. '
+           'Write figures as in prose ("46 rules", "26-41 m"), never a bare 1-2 digit number.\n'
            '- You draft and seal the documentation plan from the live source, reusing the last sealed report with '
            '`doc_contract.py draft --previous`, and report the sealed reference. Give each changed target its own '
            'judgment; do not copy one reason across targets.\n'
@@ -166,6 +167,7 @@ def figures_section(root, issue, figures=()):
            'value as history and says so.']
     out += [f"  {hit['path']}:{hit['line']}: [{hit['figure']}"
             + (f" -> {hit['new']}" if hit['new'] else '') + f"] {hit['text'][:160]}" for hit in found['hits']]
+    out += ['  warning: ' + warning for warning in found['warnings']]
     if found['truncated']:
         out.append(f"  ... {found['truncated']} more; run doc_contract.py stale --issue {issue}")
     return '\n'.join(out)
