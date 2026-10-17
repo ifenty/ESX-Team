@@ -99,7 +99,7 @@ class VerifyRerunTests(unittest.TestCase):
             self.fixture.gate.check_done()
         for message in (str(caught.exception), str(gate.exception)):
             self.assertIn(record['log'], message)
-            self.assertIn('no test failed', message)
+            self.assertIn('no failure-marked line was observed', message)
             self.assertNotIn('Errno', message)
 
     def test_genuine_failure_is_failed(self):

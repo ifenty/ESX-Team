@@ -371,6 +371,112 @@ def work_in_progress(root):
     return None
 
 
+def verification_running(root):
+    """Verification runs this project owns that are still executing.
+
+    The final scientific verification is Arch's own by workflow design
+    (``final_verify_owner``), takes about two hours over ~60 commands, and is
+    MANDATORY for every scientific change. It is not a subagent, so
+    :func:`native_running` cannot see it, and without this check every Stop
+    cycle during it advanced the iteration. Measured on RUNOFF-030: ``CONTINUE
+    iteration=4`` and ``CONTINUE iteration=5`` eighty seconds apart during a
+    6629 s run, two of an owner-granted twenty spent on waiting. At that rate a
+    single run can exhaust a whole budget before the issue it verifies closes,
+    so the longest required step of the standard workflow was also the one that
+    spent the budget fastest (TEAM-LOOPHOLD-ARCH-BACKGROUND-WORK-001).
+
+    Read from ``/proc`` rather than from ``ps`` output, and skip this process:
+    a ``pgrep -f``-style pattern matches the scanning command itself, which is
+    how an earlier attempt at exactly this check reported its own shell as the
+    running process. Binding to ``cwd`` keeps a run in another checkout from
+    holding this loop.
+    """
+    root = Path(root).resolve()
+    running, mine = [], {str(os.getpid()), str(os.getppid())}
+    try:
+        entries = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
+    except OSError:
+        return []
+    for entry in entries:
+        if entry.name in mine:
+            continue
+        try:
+            arguments = [a for a in entry.joinpath('cmdline').read_bytes().split(b'\0') if a]
+            if len(arguments) < 2 or b'python' not in arguments[0].rsplit(b'/', 1)[-1]:
+                continue
+            script = next((s for s in VERIFICATION_SCRIPTS
+                           if any(a.decode('utf-8', 'replace').endswith(s) for a in arguments[1:])), None)
+            if not script or Path(os.readlink(entry / 'cwd')).resolve() != root:
+                continue
+            age = clock() - entry.stat().st_mtime
+        except (OSError, ValueError, IndexError):
+            continue
+        if 0 <= age < VERIFICATION_STALE_SECONDS:
+            running.append({'script': script, 'minutes': int(age // 60), 'pid': int(entry.name)})
+    return running
+
+
+def parent_pid(pid):
+    """The parent of ``pid`` from ``/proc``, or None once it is gone."""
+    try:
+        stat = Path(f'/proc/{pid}/stat').read_text()
+        # The command name is parenthesised and may itself contain spaces or
+        # parentheses, so split after the LAST ')'.
+        return int(stat[stat.rindex(')') + 2:].split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def session_process(start=None):
+    """The Claude CLI process this hook runs under, or None if none is found.
+
+    A hook is spawned by the CLI, so walking up from this process reaches it.
+    """
+    pid = start or os.getpid()
+    for _ in range(64):
+        try:
+            if Path(f'/proc/{pid}/comm').read_text().strip() == 'claude':
+                return pid
+        except OSError:
+            return None
+        pid = parent_pid(pid)
+        if pid is None or pid <= 1:
+            return None
+    return None
+
+
+def descends_from(pid, ancestor):
+    """Whether ``ancestor`` is ``pid`` or one of its ancestors."""
+    for _ in range(64):
+        if pid == ancestor:
+            return True
+        pid = parent_pid(pid)
+        if pid is None or pid <= 1:
+            return False
+    return False
+
+
+def untracked_runs(running, session=None):
+    """The verification runs this session will NOT be re-invoked for.
+
+    The harness re-invokes a session only for work it launched and tracks: a
+    native subagent, or a Bash-tool ``run_in_background`` command, whose process
+    is a child of the session's own ``claude`` process. A run launched with
+    ``subprocess.Popen(..., start_new_session=True)`` from a launcher that then
+    exits is reparented to PID 1, so it has no ``claude`` ancestor and its end
+    is an event nobody delivers. Measured on 2026-10-09: the detached form had
+    ``ppid=1`` (``systemd``); the ``run_in_background`` form had this session's
+    ``claude`` as its direct parent. Both were session leaders, so the session
+    id does not tell them apart -- only the ancestry does.
+
+    When the session process cannot be identified, every run counts as
+    untracked: a needless wait costs a status line, a wrong "tracked" costs
+    hours (TEAM-LOOPHOLD-NO-RELEASE-001).
+    """
+    session = session_process() if session is None else session
+    return [r for r in running if not session or not descends_from(r['pid'], session)]
+
+
 def native_running(root, session_id):
     """Agent-tool subagents this session launched that have not stopped.
 
@@ -434,51 +540,6 @@ def retained_in_flight(root):
     return False
 
 
-def verification_running(root):
-    """Verification runs this project owns that are still executing.
-
-    The final scientific verification is Arch's own by workflow design
-    (``final_verify_owner``), takes about two hours over ~60 commands, and is
-    MANDATORY for every scientific change. It is not a subagent, so
-    :func:`native_running` cannot see it, and without this check every Stop
-    cycle during it advanced the iteration. Measured on RUNOFF-030: ``CONTINUE
-    iteration=4`` and ``CONTINUE iteration=5`` eighty seconds apart during a
-    6629 s run, two of an owner-granted twenty spent on waiting. At that rate a
-    single run can exhaust a whole budget before the issue it verifies closes,
-    so the longest required step of the standard workflow was also the one that
-    spent the budget fastest (TEAM-LOOPHOLD-ARCH-BACKGROUND-WORK-001).
-
-    Read from ``/proc`` rather than from ``ps`` output, and skip this process:
-    a ``pgrep -f``-style pattern matches the scanning command itself, which is
-    how an earlier attempt at exactly this check reported its own shell as the
-    running process. Binding to ``cwd`` keeps a run in another checkout from
-    holding this loop.
-    """
-    root = Path(root).resolve()
-    running, mine = [], {str(os.getpid()), str(os.getppid())}
-    try:
-        entries = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
-    except OSError:
-        return []
-    for entry in entries:
-        if entry.name in mine:
-            continue
-        try:
-            arguments = [a for a in entry.joinpath('cmdline').read_bytes().split(b'\0') if a]
-            if len(arguments) < 2 or b'python' not in arguments[0].rsplit(b'/', 1)[-1]:
-                continue
-            script = next((s for s in VERIFICATION_SCRIPTS
-                           if any(a.decode('utf-8', 'replace').endswith(s) for a in arguments[1:])), None)
-            if not script or Path(os.readlink(entry / 'cwd')).resolve() != root:
-                continue
-            age = clock() - entry.stat().st_mtime
-        except (OSError, ValueError, IndexError):
-            continue
-        if 0 <= age < VERIFICATION_STALE_SECONDS:
-            running.append({'script': script, 'minutes': int(age // 60), 'pid': int(entry.name)})
-    return running
-
-
 def group_notice(root):
     """Remaining scientific groups of a partly finished grouped verification, as a sentence ('' otherwise).
 
@@ -492,67 +553,6 @@ def group_notice(root):
     except Exception:  # advisory only: never let a notice break the Stop decision
         return ''
     return ('ESX: ' + text) if text else ''
-
-
-def parent_pid(pid):
-    """The parent of ``pid`` from ``/proc``, or None once it is gone."""
-    try:
-        stat = Path(f'/proc/{pid}/stat').read_text()
-        # The command name is parenthesised and may itself contain spaces or
-        # parentheses, so split after the LAST ')'.
-        return int(stat[stat.rindex(')') + 2:].split()[1])
-    except (OSError, ValueError, IndexError):
-        return None
-
-
-def session_process(start=None):
-    """The Claude CLI process this hook runs under, or None if none is found.
-
-    A hook is spawned by the CLI, so walking up from this process reaches it.
-    """
-    pid = start or os.getpid()
-    for _ in range(64):
-        try:
-            if Path(f'/proc/{pid}/comm').read_text().strip() == 'claude':
-                return pid
-        except OSError:
-            return None
-        pid = parent_pid(pid)
-        if pid is None or pid <= 1:
-            return None
-    return None
-
-
-def descends_from(pid, ancestor):
-    """Whether ``ancestor`` is ``pid`` or one of its ancestors."""
-    for _ in range(64):
-        if pid == ancestor:
-            return True
-        pid = parent_pid(pid)
-        if pid is None or pid <= 1:
-            return False
-    return False
-
-
-def untracked_runs(running, session=None):
-    """The verification runs this session will NOT be re-invoked for.
-
-    The harness re-invokes a session only for work it launched and tracks: a
-    native subagent, or a Bash-tool ``run_in_background`` command, whose process
-    is a child of the session's own ``claude`` process. A run launched with
-    ``subprocess.Popen(..., start_new_session=True)`` from a launcher that then
-    exits is reparented to PID 1, so it has no ``claude`` ancestor and its end
-    is an event nobody delivers. Measured on 2026-10-09: the detached form had
-    ``ppid=1`` (``systemd``); the ``run_in_background`` form had this session's
-    ``claude`` as its direct parent. Both were session leaders, so the session
-    id does not tell them apart -- only the ancestry does.
-
-    When the session process cannot be identified, every run counts as
-    untracked: a needless wait costs a status line, a wrong "tracked" costs
-    hours (TEAM-LOOPHOLD-NO-RELEASE-001).
-    """
-    session = session_process() if session is None else session
-    return [r for r in running if not session or not descends_from(r['pid'], session)]
 
 
 def finalize(root, state, original, parsed, kind, reason, explain, system_message):

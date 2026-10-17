@@ -28,6 +28,12 @@ from project import (STATE, ROLES, atomic_json, config, json_file, local, now,
 from records import json_lines, save_history, validate_records
 
 PROMISE = 'ESX-LOOP-NO-ACTIONABLE-WORK'
+
+
+def record_error(error):
+    """One-line form of a capture error for the gate's screen."""
+    text = ' '.join(str(error).split())
+    return text if len(text) <= 160 else text[:157] + '...'
 SELF_ASSESSMENT_WINDOW = 10
 
 
@@ -429,6 +435,110 @@ class Gate:
             notices.append('State in the brief which of these triggers apply to this issue and how each is applied.')
         return notices
 
+    def defective_completions(self, start):
+        """Agent turns of this iteration whose completion was not captured.
+
+        `agent_runtime` validates every completion at capture time -- footer
+        identity, required references -- and records the exact error, then tells
+        nobody. On RUNOFF-013 all four completions of one reviewer were recorded
+        `incomplete` with "missing, malformed, or mismatched structured footer",
+        because the footer's `agent` field said `richard-a` (a descriptive name
+        Arch had used in every brief) rather than the registered `agent_type`.
+        Four correct reviews were unavailable to the closeout packet, and it
+        surfaced only hours later when closure needed them
+        (TEAM-BRIEF-UNVALIDATED-INTERFACE-001).
+
+        So the gate reports them on the turn after they happen, while the agent
+        is still resumable and a short follow-up fixes the record.
+
+        A defect is suppressed once the record shows it was repaired, because a
+        notice that cannot clear teaches the operator to read past it, and the
+        next real one is skipped too. Two forms of repair are recognised, both
+        measured on RUNOFF-030 where this method reported two defects for the
+        whole iteration and BOTH were false
+        (TEAM-GATE-DEFECT-NOTICE-NOT-SUPERSEDED-001):
+
+        * **Re-emission.** A later `completed` record for the same agent AND the
+          same correction round means the agent already re-emitted what this
+          record complains about. The log held one `incomplete` bob round-1
+          record followed by three `completed` round-1 records, and the gate was
+          still advising a resume to re-emit a footer re-emitted five records
+          earlier. The sibling method below, ``rejection_streak``, already keys
+          per round so the latest state wins; this now does the same.
+
+        * **A footer-less turn the agent later superseded.** A record with no
+          footer at all carries no round, so it cannot be matched per round. The
+          richard record of that iteration dated to the diagnosis checkpoint,
+          where the brief said verbatim "Answer in plain prose. No footer, no
+          orientation receipt, no suite run." That is not a defective completion
+          at all -- it is a turn correctly instructed to produce none, and the
+          capture gate cannot tell it from a malformed footer. A consultation
+          turn is the cheapest correct way to hold a checkpoint, so logging it
+          as a permanent defect penalises the best practice the loop has. Any
+          later `completed` record from the same agent on this issue settles it:
+          the agent demonstrably reported, so nothing is uncaptured. A turn that
+          never reported again is still flagged, which is the case the notice
+          exists for.
+
+        * **A footer-less turn that belongs to no iteration.** Such a record
+          carries neither an issue nor an iteration, so the filter below admits
+          it to EVERY iteration -- while its agent's superseding completions
+          name their own issue and are filtered out of every iteration but that
+          one. The suppression above therefore held for exactly one iteration
+          and then inverted: a closed RUNOFF-030 reviewer's consultation turn
+          (whose report ends "no footer, per your instruction") was re-flagged
+          on RUNOFF-040, RUNOFF-016 and RUNOFF-042, with a remedy that would
+          have attached that reviewer to an issue it never reviewed
+          (TEAM-GATE-CONSULTATION-NOTICE-PERMANENT-001). For such a record the
+          agent's whole log is consulted instead: a LATER completion on any
+          issue proves it reported again. One that never did is still flagged.
+        """
+        dispatches = json_lines(local(self.root, f'{STATE}/dispatch_log.jsonl'))
+        later_completion = set()
+        for position in range(len(dispatches) - 1, -1, -1):
+            record = dispatches[position]
+            record['_reported_later'] = (record.get('agent_type'), record.get('agent_id')) in later_completion
+            if record.get('status') == 'completed':
+                later_completion.add((record.get('agent_type'), record.get('agent_id')))
+        records = []
+        for record in dispatches:
+            if record.get('agent_type') not in ROLES or not record.get('agent_id'):
+                continue
+            footer = record.get('footer') if isinstance(record.get('footer'), dict) else {}
+            # A defective footer may carry no issue id at all, so fall back to
+            # the recorded issue on the dispatch itself.
+            issue = footer.get('issue_id') or record.get('issue_id')
+            if issue not in (None, start['id']):
+                continue
+            if footer.get('iteration_timestamp') not in (None, start['timestamp']):
+                continue
+            records.append(record)
+
+        repaired, reported = set(), set()
+        for position, record in enumerate(records):
+            if record.get('status') != 'completed':
+                continue
+            agent = (record['agent_type'], record['agent_id'])
+            repaired.add(agent + (record.get('correction_round'),))
+            reported.add(agent)
+
+        broken = {}
+        for record in records:
+            if record.get('status') not in ('incomplete', 'failed'):
+                continue
+            agent = (record['agent_type'], record['agent_id'])
+            round_number = record.get('correction_round')
+            if agent + (round_number,) in repaired:
+                continue
+            if not isinstance(record.get('footer'), dict) and agent in reported:
+                continue
+            if (not isinstance(record.get('footer'), dict) and record.get('issue_id') is None
+                    and record.get('iteration_timestamp') is None and record['_reported_later']):
+                continue
+            broken[agent + (round_number,)] = (record['agent_type'], record['agent_id'], round_number,
+                                               record.get('error') or record['status'])
+        return list(broken.values())
+
     def rejection_streak(self, start):
         """Correction rounds of the active iteration whose latest review rejected, trailing.
 
@@ -546,6 +656,11 @@ class Gate:
                           'Before another correction, hold a diagnosis checkpoint with the same agents: reproduce '
                           'the dispute, name the mistaken or unproven premise, and agree the next bounded change '
                           'and its acceptance (ARCHITECT.md). Closeout requires it after two unsuccessful corrections.')
+                for role, agent, round_number, error in self.defective_completions(start):
+                    print(f'UNCAPTURED COMPLETION: {role} {agent} (round {round_number}) is recorded '
+                          f'"{record_error(error)}", so closeout cannot count it. Resume that agent and ask '
+                          'it to re-emit its footer; the footer\'s "agent" field must be exactly the '
+                          f'registered agent_type "{role}", and every reference it cites must resolve.')
                 import final_verification
                 pending = final_verification.pending_notice(self.root)
                 if pending:

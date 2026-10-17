@@ -889,8 +889,28 @@ def stale_lines(root, figures, limit=200):
                 if pattern.search(line):
                     hits.append({'figure': row['old'], 'new': row['new'], 'note': row['note'],
                                  'path': name, 'line': number, 'text': line.strip()[:240]})
-    return {'figures': len(figures), 'lines': len(hits), 'hits': hits[:limit],
-            'truncated': max(len(hits) - limit, 0), 'warnings': bare_figure_warnings(figures)}
+    # A truncated listing must not be countable as a total
+    # (TEAM-DOCCONTRACT-STALE-HITS-TRUNCATION-001). `lines` and the listing
+    # answer different questions, and the listing is the natural thing to count:
+    # on RUNOFF-005 a figure of 199 reached permanent prose in the documentation
+    # contract because someone counted `hits[:200]` (minus one self-reference)
+    # instead of reading `lines`, which was 335. So the key is renamed when the
+    # list is partial: a caller that reads 'hits' and gets a short list is now a
+    # KeyError instead of a plausible wrong number. Use `listed()` to read the
+    # entries without caring which case applies.
+    result = {'figures': len(figures), 'lines': len(hits), 'limit': limit,
+              'truncated': max(len(hits) - limit, 0), 'warnings': bare_figure_warnings(figures)}
+    result['hits' if result['truncated'] == 0 else 'hits_sample'] = hits[:limit]
+    return result
+
+
+def listed(result):
+    """The entries a `stale_lines` result carries, complete or sampled.
+
+    Callers that only want to display the lines use this; callers that report a
+    count must read `result['lines']`, which is always the true total.
+    """
+    return result.get('hits', result.get('hits_sample', []))
 
 
 NAVIGATE_EXAMPLE = '''example:
@@ -975,6 +995,12 @@ def main():
                 parser.error('give --issue or --figures')
             table = args.figures if args.figures else local(args.root, figures_path(args.issue))
             result = stale_lines(args.root, read_figures(table), args.limit)
+            if result['truncated']:
+                # Say the total next to the listing, so it cannot be inferred by
+                # counting (TEAM-DOCCONTRACT-STALE-HITS-TRUNCATION-001).
+                print(f"documentation contract: {result['lines']} inventoried line(s) match; "
+                      f"'hits_sample' lists the first {result['limit']} and {result['truncated']} are not "
+                      "shown. Read 'lines' for the total; do not count the sample.", file=sys.stderr)
             for warning in result['warnings']:
                 print('documentation contract: warning: ' + warning, file=sys.stderr)
         elif args.command == 'check-orientation':

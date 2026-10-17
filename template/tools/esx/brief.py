@@ -166,7 +166,8 @@ def figures_section(root, issue, figures=()):
            f"({len(rows)} figure(s) checked). Correct each line, or keep it deliberately when it quotes the old "
            'value as history and says so.']
     out += [f"  {hit['path']}:{hit['line']}: [{hit['figure']}"
-            + (f" -> {hit['new']}" if hit['new'] else '') + f"] {hit['text'][:160]}" for hit in found['hits']]
+            + (f" -> {hit['new']}" if hit['new'] else '') + f"] {hit['text'][:160]}"
+            for hit in doc_contract.listed(found)]
     out += ['  warning: ' + warning for warning in found['warnings']]
     if found['truncated']:
         out.append(f"  ... {found['truncated']} more; run doc_contract.py stale --issue {issue}")

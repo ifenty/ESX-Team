@@ -176,8 +176,9 @@ def three_way(current, base, incoming):
         run = subprocess.run(["git", "merge-file", "-p", "-L", "project", "-L", "installed baseline",
                               "-L", "new ESX master", *map(str, paths)], capture_output=True)
         if run.returncode == 0: return run.stdout, True
-        if run.returncode == 1: return run.stdout, False
-        raise ValueError("git merge-file failed: " + run.stderr.decode(errors="replace").strip())
+        # git merge-file exits with the NUMBER of conflicts (1..127); only >=128 (or a signal/negative status) is an error.
+        if 1 <= run.returncode <= 127: return run.stdout, False
+        raise ValueError(f"git merge-file failed (exit {run.returncode}): " + run.stderr.decode(errors="replace").strip())
 
 def deployment_id(action):
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")

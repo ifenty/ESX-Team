@@ -32,8 +32,10 @@ Each attempt record under `final-verification/` carries one status, and
 `final-verification/latest.json` names the most recent attempt:
 
 - `PASS`: the suite passed on the unchanged reviewed candidate.
-- `FAILED`: the suite reached a non-zero verdict (or timed out) on the candidate.
-- `INTERRUPTED`: the verifier or its child was killed by a signal, or a pytest
+- `FAILED`: the suite reached a non-zero verdict on the candidate (a command that crashed with SIGSEGV and the like is a failure).
+- `TIMED_OUT`: a command exceeded `command_timeout_seconds`; a verdict on a hung candidate, not an interruption.
+- `INFRASTRUCTURE`: a command could not be launched, or ended on a signal nobody can attribute; no verdict, fix the cause and re-run.
+- `INTERRUPTED`: the verifier or its child was terminated by SIGTERM/SIGINT/SIGHUP/SIGKILL/SIGQUIT, or a pytest
   session ended without its summary line; no verdict exists, so re-run.
 - `SOURCE_CHANGED`: source, configuration or review moved during the run; the
   outcome describes no single candidate, so re-run after edits finish.

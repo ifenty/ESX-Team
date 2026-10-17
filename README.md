@@ -127,6 +127,7 @@ and triggers to the relevant role definitions.
 | `mirrored_paths` | Optional: `{"canonical": path, "mirrors": [path, ...]}` pairs for files a build/compile step needs its own local copy of (no shared-import mechanism available); `tools/esx/audit.py` flags any mirror whose bytes have drifted from its canonical source |
 | `archive_paths` | Optional: paths holding superseded documentation kept for provenance. `tools/esx/audit.py` skips instruction-link checking beneath them, because their links describe a layout that no longer exists. A configured scientific root always wins, so real source/tests/configuration never become unchecked by being listed here |
 | `documentation_paths` | Optional: documentation outside the tracked footprint (for example a vendored model's `doc/`). It joins candidate capture, the stale-figure sweeps and the non-scientific signature, never the scientific one. It may not lie under or contain a source, test or configuration root, or overlap `output_paths`. The issue baseline stores the list; change it between issues |
+| `framework_test_paths` | Optional: tests of the framework or of the project's records (paths inside a `test_paths` root). They stay in the acceptance inventory and run in `structural` but leave the scientific inventory, so editing them cannot require a `scientific_change`. A path executed by a suite other than `structural` is refused. Absent means every test path is scientific |
 | `environment_variables` | Environment values relevant to reproducibility; do not list credential variables |
 | `toolchain_commands` | Foreground argv arrays reporting the actual compiler/interpreter/library environment |
 | `command_timeout_seconds` | Maximum foreground command duration; choose for the declared workflow |
@@ -280,6 +281,49 @@ Arch sends through the authenticated provider tool and records actual receipts o
 concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
+
+## Version 1.7.2: pilot fixes reconciled so a project can upgrade
+
+A project that carried fixes in its own `tools/esx/` while installed at 1.6.3 could not take a
+three-way upgrade: seven framework files had 18 overlapping hunks. The kit is the master, so every
+hunk was decided (see `self-improvement/reconcile_1.7.2.md`): the project's behaviour is now in the
+kit, or already was, or is dropped with a stated reason. Resolving each conflicting hunk to the kit
+side then loses nothing the project needs.
+
+- **`esx_upgrade.py` preview no longer aborts on a file with several conflicts.** `git merge-file`
+  exits with the number of conflicts (1 to 127); only 128 or more (or a signal) is an error.
+  `three_way` treated 2 or more as an error and the whole preview failed with an empty
+  "git merge-file failed:". Now 1 to 127 is a reported conflict with markers, 128 and above raises
+  with git's stderr and the exit status.
+- **`doc_contract.py stale` cannot be counted as a total when truncated.** A partial listing is
+  returned as `hits_sample` (not `hits`), `lines` is always the true total, `limit` is returned,
+  and the command prints the total beside a truncated listing. `doc_contract.listed(result)` reads
+  either; `brief.py` uses it. A complete listing keeps `hits`.
+- **`loop_gate.py --next` reports uncaptured completions.** `Gate.defective_completions` names a
+  retained turn whose footer capture was refused (`incomplete`/`failed`) and that nothing repaired:
+  per correction round, cleared by a later `completed` record, and a footer-less turn is cleared
+  once its agent reports again (a turn that belongs to no issue is judged against the agent's whole
+  log, so a consultation turn is not re-flagged on every later iteration). The notice precedes
+  the pending-verification notice.
+- **`framework_test_paths`** (optional list in `esx/project.json`). Tests of the framework or of the
+  project's records stay in the acceptance inventory and run in `structural`, but leave the scientific
+  inventory, so an ESX-only regression edit does not stale numerical evidence. Each entry must lie
+  inside a `test_paths` root and may not be executed by a suite other than `structural` (that would
+  silently drop a scientific witness). Absent means every test path is scientific, as before.
+- **Verification outcomes come from the runner, not from the log.** Each verification record gains
+  `outcome` (`pass`, `failed`, `timeout`, `infrastructure`, `interrupted`, `source_changed`),
+  `termination`, `reason`, `completed_commands`, `planned_commands`, `ended_at` and `failure_lines`.
+  A crash signal (SIGSEGV and the like) is a failure; SIGTERM/SIGINT/SIGHUP/SIGKILL/SIGQUIT is an
+  interruption; any other signal and a command that cannot be launched are `INFRASTRUCTURE` (no
+  verdict); a real per-command timeout is `TIMED_OUT` (`RunTimedOut`); a command that itself returns
+  124 or 128+N has simply failed. A signal to the runner still raises an `InterruptedError`
+  (`RunInterrupted` is now both), with the signal number recorded. The 1.6.5 rule that a pytest
+  session ended without its summary line is an interruption is kept for positive exit codes.
+  `load_evidence` refuses a record whose `outcome` is not `pass` or that did not complete every
+  command; records without `outcome` keep their old contract. `final_verification.py` no longer
+  says "no test failed" when no failure-marked line was observed, and reports the two new statuses.
+- **`ralph_stop.py`:** the verification-hold helpers moved to sit directly before `native_running`
+  (code motion only) so a project that carries them merges without duplicate definitions.
 
 ## Version 1.7.1: per-dispatch role models
 
