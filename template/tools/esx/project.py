@@ -108,6 +108,7 @@ def config(root, ready=True):
             and all(isinstance(x, str) and re.fullmatch(r'[A-Za-z_]\w*(\.[A-Za-z_]\w*)*', x)
                     for x in cfg.get('required_imports', [])),
             'required_imports must be a list of module names')
+    validate_role_models(cfg.get('role_models'))
     require(isinstance(cfg.get('mirrored_paths', []), list), 'mirrored_paths must be a list')
     for entry in cfg.get('mirrored_paths', []):
         require(isinstance(entry, dict) and isinstance(entry.get('canonical'), str) and entry['canonical']
@@ -157,6 +158,78 @@ def config(root, ready=True):
         for name in ('esx/project_profile.md', 'docs/code_map.md'):
             require('TODO_ESX' not in local(root, name).read_text(), f'complete {name}')
     return cfg
+
+
+ROLE_MODEL_ROLES = ('bob', 'richard')
+
+
+def validate_role_models(value):
+    """Optional esx/project.json role_models: per-role default and allowed model names."""
+    if value is None:
+        return
+    require(isinstance(value, dict) and value, 'role_models must be a non-empty object keyed by role')
+    for role, entry in value.items():
+        require(role in ROLE_MODEL_ROLES, f'role_models: unknown role {role!r}; known roles are {", ".join(ROLE_MODEL_ROLES)}')
+        require(isinstance(entry, dict) and set(entry) <= {'default', 'allowed'} and 'allowed' in entry,
+                f'role_models.{role} needs "allowed" and may add "default"; no other keys')
+        allowed = entry['allowed']
+        require(isinstance(allowed, list) and allowed and all(isinstance(x, str) and x.strip() and x != 'inherit' for x in allowed),
+                f'role_models.{role}.allowed must be a non-empty list of model names (not "inherit")')
+        default = entry.get('default', 'inherit')
+        require(isinstance(default, str) and default.strip() and (default == 'inherit' or default in allowed),
+                f'role_models.{role}.default must be "inherit" or one of allowed {allowed}')
+
+
+def role_models(root):
+    """The configured role_models, or {} for a project without it (behaviour unchanged)."""
+    try:
+        return json.loads(local(root, 'esx/project.json').read_text()).get('role_models') or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def model_tokens(name):
+    """Conservative model-name normalisation: lower case, no [qualifier], no -YYYYMMDD, no provider prefix."""
+    name = re.sub(r'\[[^\]]*\]', '', str(name).strip().lower())
+    name = re.sub(r'-\d{8}$', '', name)
+    if 'claude' in name:
+        name = name[name.index('claude'):]
+    return name
+
+
+def model_allowed(recorded, allowed):
+    """Whether a recorded model name matches an allowed entry; returns the entry or None.
+
+    Both sides are normalised (model_tokens). A full configured name must be a prefix of the
+    recorded name on a '-' boundary (claude-opus-4 matches claude-opus-4-5, not claude-opus-40).
+    A bare alias (opus, sonnet, haiku, fable: no hyphen) matches a recorded name that carries it
+    as one of its '-' separated words (claude-opus-4-5)."""
+    got = model_tokens(recorded)
+    for entry in allowed:
+        want = model_tokens(entry)
+        if got == want or got.startswith(want + '-'):
+            return entry
+        if '-' not in want and want in got.split('-'):
+            return entry
+    return None
+
+
+def model_findings(root, role, dispatch_records, cfg_role_models=None):
+    """(code, message) findings for one bob/richard identity; empty without role_models."""
+    configured = role_models(root) if cfg_role_models is None else cfg_role_models
+    if role not in configured:
+        return []
+    models = [r.get('model') for r in dispatch_records if isinstance(r.get('model'), str) and r.get('model').strip()]
+    if not models:
+        return [('MODEL_UNRECORDED', f'{role}: no dispatch-log record of this identity shows its model')]
+    allowed = configured[role]['allowed']
+    out = []
+    for model in sorted(set(models)):
+        if model_allowed(model, allowed) is None:
+            out.append(('MODEL_NOT_ALLOWED', f'{role}: recorded model {model!r} (normalised {model_tokens(model)!r}) matches none of '
+                        f'the allowed names {allowed} (compared after dropping [..] qualifiers, a -YYYYMMDD suffix and any provider '
+                        'prefix; a configured name matches as a prefix on a "-" boundary, a bare alias as one word)'))
+    return out
 
 
 def nested(name, root_path):

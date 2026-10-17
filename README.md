@@ -281,6 +281,41 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.7.1: per-dispatch role models
+
+The owner can run Bob and Richard on a chosen model for a given dispatch, with the choice
+validated, recorded and checked at closeout. A project without `role_models` behaves exactly
+as before, including the runtime-contract hash of its sessions.
+
+- **Config.** Optional `role_models` in `esx/project.json`:
+  `{"bob": {"default": "inherit", "allowed": ["opus"]}, "richard": {"default": "opus", "allowed": [...]}}`.
+  Known roles are `bob` and `richard`; `allowed` is a non-empty list of model names; `default`
+  (optional, `inherit` when omitted) is `inherit` or one of `allowed`; other keys are refused.
+- **Retained dispatch.** `agent_runtime.py start --model NAME` reaches the CLI as `--model NAME`.
+  Precedence: `--model` > the role file's frontmatter `model:` > `role_models` default > inherit
+  (no flag). When configured, the resolved name must be in `allowed` (exact string) or `start`
+  refuses and lists the allowed names. The model is stored in the session record. It joins the
+  runtime-contract hash only when it came from `--model` or the `role_models` default, never for
+  `inherit` or a role-file pin, so existing hashes are unchanged. `followup`/`message` reuse the
+  stored model and refuse a different `--model`: that is a replacement identity (`start --model`
+  with `--replaces-agent` and `--replacement-reason`). The dispatch-log record carries `model`
+  (the model the CLI reported, else the requested one, else null) and `model_requested`.
+- **Native (Agent tool) dispatch.** The framework cannot choose or enforce the model. At
+  SubagentStop it records `model` in the dispatch log from the last assistant record of the agent
+  transcript that names one (the CLI's synthetic names are ignored); null when none.
+- **Closeout.** With `role_models` configured, `loop_gate.py --closeout-doctor` and `--check-done`
+  report `MODEL_UNRECORDED` (no dispatch-log record of a configured role's identity shows a model)
+  and `MODEL_NOT_ALLOWED` (a recorded model matches no allowed name). Matching is conservative:
+  both sides lower-cased, `[..]` qualifiers (such as `[1m]`), a trailing `-YYYYMMDD` and any
+  provider prefix before `claude` dropped; a full configured name matches as a prefix on a `-`
+  boundary (`claude-opus-4` matches `claude-opus-4-5`, not `claude-opus-40`), a bare alias
+  (`opus`) matches as one `-`-separated word. The finding states what was compared. Without
+  `role_models` nothing is checked.
+- **Measurement.** The accounting summary gains `by_model` and the retrospective draft's
+  `measured.models`: per recorded model, `dispatches`, known `reported_usd` and
+  `unknown_cost_events`; dispatches with no recorded model count under `unknown`. It is null when
+  no record carries a model field.
+
 ## Version 1.7.0: grouped scientific verification
 
 A scientific suite that needs more than one background command (the pilot's 71 commands take

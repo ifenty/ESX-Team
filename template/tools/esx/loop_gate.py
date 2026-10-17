@@ -326,6 +326,10 @@ class Gate:
                 require(isinstance(assignment, list) and set(assignment) == agents[role],
                         f'record stable {role} runtime identities: agent_continuity.{role} must list exactly the '
                         f'dispatch_ids already in subagents.{role}, originals first: {sorted(agents[role])}')
+                problems = [f'{c}: {m}' for ident in sorted(agents[role]) for c, m in project.model_findings(
+                    self.root, role, [r for r in records if r.get('agent_id') == ident and r.get('agent_type') == role],
+                    self.cfg.get('role_models') or {}) ]
+                require(not problems, '; '.join(problems))
                 initial_count = 1 if role == 'bob' else max(1, policy['minimum_reviewers'])
                 parallel = workflow.parallel_ids(done, records, role)
                 for replacement_id in assignment[initial_count:]:

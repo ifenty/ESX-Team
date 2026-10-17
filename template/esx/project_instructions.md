@@ -55,3 +55,9 @@ Keep records economical. Default budgets are 60 lines per open/closed issue,
 short statement plus a trigger of at most 12 words. A resume block contains at
 most 12 lines of stable navigation links; disk records own changing state. The
 owner can adjust these budgets in the project profile for a specific workflow.
+
+Role models: the owner's standing choice of model for Bob and Richard is the optional
+`role_models` object in `esx/project.json` (see [team operations](../devel-loop/team_operations.md#role-models)).
+Dispatch a retained role with `agent_runtime.py start --model NAME`; a native Agent-tool
+dispatch records its model but the framework cannot enforce it. Record the owner's directive
+in the project profile.

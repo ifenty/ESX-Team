@@ -17,6 +17,7 @@ import sys
 import audit
 import doc_contract as maintenance
 import final_verification
+import project
 import issue_candidates
 import loop_iteration
 import verify
@@ -241,6 +242,13 @@ def diagnose(gate, done_path=None):
                  f'Set agent_continuity.{role} to exactly the dispatch_ids already in subagents.{role}, '
                  f'originals first: {sorted(agents[role])}.')
             if isinstance(assignment, list):
+                for ident in sorted(agents[role]):
+                    for code, message in project.model_findings(
+                            root, role, [r for r in records if r.get('agent_id') == ident and r.get('agent_type') == role],
+                            gate.cfg.get('role_models') or {}):
+                        add(code, f'agent_continuity.{role}', message,
+                            'Dispatch the role on an allowed model (start --model NAME for a retained turn; the Agent tool model '
+                            'for a native one) or amend esx/project.json role_models.', agent=ident)
                 initial = 1 if role == 'bob' else max(1, policy.get('minimum_reviewers') or 0)
                 parallel = workflow.parallel_ids(done, records, role)
                 for replacement_id in assignment[initial:]:

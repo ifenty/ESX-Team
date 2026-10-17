@@ -44,6 +44,7 @@ import shlex
 
 TOOL_CALL_TIMEOUT_S = 600
 WATCHDOG_POLL_S = 0.1
+import project
 from project import local
 
 
@@ -267,6 +268,49 @@ def pause_for_provider_limit(root, limit, who):
         pass
 
 
+def transcript_model(path):
+    """Model of the LAST assistant record in a transcript that names one, else None.
+
+    The CLI's synthetic records (model names such as '<synthetic>') are not a model choice
+    and are ignored. Never raises: a missing or unreadable transcript has no model."""
+    last = None
+    try:
+        with open(path) as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                message = row.get("message") if isinstance(row, dict) else None
+                if not isinstance(row, dict) or row.get("type") != "assistant" or not isinstance(message, dict):
+                    continue
+                model = message.get("model")
+                if isinstance(model, str) and model.strip() and not (model.startswith("<") and model.endswith(">")):
+                    last = model.strip()
+    except (OSError, TypeError, ValueError):
+        return None
+    return last
+
+
+def resolve_model(root, role, fields, explicit=None):
+    """(name, source) for a new retained session: explicit > role-file pin > role_models default > inherit."""
+    configured = project.role_models(root).get(role)
+    if explicit is not None:
+        if not isinstance(explicit, str) or not explicit.strip():
+            raise ValueError("--model needs a model name")
+        name, source = explicit.strip(), "explicit"
+    elif fields.get("model"):
+        name, source = fields["model"], "role_file"
+    elif configured and configured.get("default", "inherit") != "inherit":
+        name, source = configured["default"], "role_models_default"
+    else:
+        name, source = "inherit", "inherit"
+    if configured and name != "inherit" and name not in configured["allowed"]:
+        raise ValueError(f"model {name!r} ({source}) is not allowed for {role}; allowed models: "
+                         + ", ".join(configured["allowed"]) + " (or inherit)")
+    return name, source
+
+
 def stop_record(root, event, *, transport="native_subagent"):
     """Persist a native hook stop without equating a stop with a completed report."""
     event = event if isinstance(event, dict) else {}
@@ -327,6 +371,8 @@ def stop_record(root, event, *, transport="native_subagent"):
         "correction_round": (footer or {}).get("correction_round", 0),
         "message_chars": len(message), "report_source": report_source,
         "report": reference(report_path, Path(root)),
+        # The framework cannot choose a native subagent's model; it records the one the transcript shows.
+        "model": transcript_model(event.get("agent_transcript_path")),
     }
     original = duplicate_completion(root, event.get("agent_id"), footer) if status == "completed" else None
     if original:
@@ -359,7 +405,7 @@ def role_contract(root, role):
     return fields
 
 
-def runtime_contract(root, executable="claude", role=None):
+def runtime_contract(root, executable="claude", role=None, model=None):
     """Hash executable/settings/instructions without returning authentication contents."""
     binary = shutil.which(executable)
     if not binary:
@@ -403,6 +449,10 @@ def runtime_contract(root, executable="claude", role=None):
     body = {"binary": str(resolved), "binary_sha256": digest(resolved.read_bytes()),
             "version": version, "files": rows, "environment": env,
             "transport": "claude_cli_session", "permission_mode": "inherited_settings"}
+    if model and model != "inherit":
+        # Only a model chosen outside the role file joins the hash, so every inherit session and
+        # every project without role_models keeps the hash it had before 1.7.1.
+        body["model"] = model
     body["effective_manifest"] = runtime_recovery.manifest(paths)
     return dict(body, sha256=digest(json.dumps(body, sort_keys=True).encode()))
 
@@ -865,7 +915,7 @@ def _execute(root, folder, state, command, prompt, timeout, tool_timeout, stdout
 
 
 
-def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_round=0,
+def _run_turn(root, *, model=None, role=None, issue=None, prompt, session=None, correction_round=0,
              executable="claude", timeout=None, probe=False, from_session=None,
              replaces_agent=None, replacement_reason=None, progress=None, review_packet=None, transition=None, tool_timeout=600, turn_calls=60,
              witness=False):
@@ -904,6 +954,19 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
         if not probe:
             team_retrospective.require_clear(root)
             team_retrospective.require_followup(root, issue)
+        chosen = contract_model = None
+        if not probe:
+            if resumed:
+                chosen = state.get("model") or (role_contract(root, role)["model"] or "inherit")
+                contract_model = state.get("contract_model")
+                if model is not None and model.strip() != chosen:
+                    raise ValueError(f"this session runs model {chosen!r}; a different model ({model.strip()!r}) is a "
+                                     "replacement identity: start a new session with start --model, --replaces-agent "
+                                     "and --replacement-reason")
+            else:
+                chosen, chosen_source = resolve_model(root, role, role_contract(root, role), model)
+                contract_model = chosen if chosen_source in ("explicit", "role_models_default") else None
+                state.update(model=chosen, model_source=chosen_source, contract_model=contract_model)
         issue_budget, run_budget = team_budget.assignment(root, issue)
         source_signature = None
         if (root / "esx/project.json").is_file():
@@ -932,7 +995,7 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             import loop_iteration
             if not loop_iteration.start_status(root, active)['validated']:
                 raise ValueError('successful --check-start required before dispatch')
-        contract = runtime_contract(root, executable, None if probe else role)
+        contract = runtime_contract(root, executable, None if probe else role, contract_model)
         transition_result = runtime_recovery.compatibility(
             root, state, contract, transition, probe=lambda: probe_status(root, executable)) if resumed else None
         event_id = uuid.uuid4().hex
@@ -961,8 +1024,8 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
             command += ["--agent", role, "--tools", fields["tools"],
                         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
                         "--settings", json.dumps(role_runtime_settings(root))]
-            if fields["model"]:
-                command += ["--model", fields["model"]]
+            if chosen and chosen != "inherit":
+                command += ["--model", chosen]
             deadline = datetime.now(timezone.utc) + timedelta(seconds=timeout)
             assignment = {"agent": role, "agent_id": session, "session_id": session,
                           "issue_id": issue, "iteration_timestamp": iteration_timestamp,
@@ -1080,6 +1143,9 @@ def _run_turn(root, *, role=None, issue=None, prompt, session=None, correction_r
                   "source_changed_during_turn": (None if turn_source_signature is None
                                                  else turn_source_signature != source_signature),
                   "source_signature_at_finish": turn_source_signature,
+                  "model": (init or {}).get("model") if isinstance((init or {}).get("model"), str) and init.get("model")
+                           else (chosen if chosen and chosen != "inherit" else None),
+                  "model_requested": chosen,
                   "resumed_from_event_id": state["turns"][-1] if state["turns"] else None,
                   "sender_session_id": from_session,
                   "replacement": replacement,
@@ -1271,6 +1337,8 @@ def main(argv=None):
     start.add_argument("--review-packet", type=Path)
     start.add_argument("--correction-round", type=int, default=0)
     start.add_argument("--timeout", type=float, help=TIMEOUT_HELP)
+    start.add_argument("--model", help="model for this retained session (precedence: this > role file model: > "
+                       "role_models default > inherit); must be in role_models.<role>.allowed when configured")
     start.add_argument("--replaces-agent", help="recorded native or CLI identity being replaced")
     start.add_argument("--replacement-reason")
     follow = sub.add_parser("followup", aliases=["message"])
@@ -1280,6 +1348,7 @@ def main(argv=None):
     follow.add_argument("--review-packet", type=Path)
     follow.add_argument("--correction-round", type=int, required=True)
     follow.add_argument("--timeout", type=float, help=TIMEOUT_HELP)
+    follow.add_argument("--model", help="must equal the session's model; a different model is a replacement identity")
     follow.add_argument("--from-session", help="recorded peer identity for an issue-scoped message")
     status = sub.add_parser("status")
     status.add_argument("--session", required=True)
@@ -1320,7 +1389,7 @@ def main(argv=None):
         elif args.command == "assess-transition":
             from workflow_handoff import input_file
             state = json.loads((session_path(root, args.session) / "session.json").read_text())
-            contract = runtime_contract(root, args.claude, None if state["probe"] else state["role"])
+            contract = runtime_contract(root, args.claude, None if state["probe"] else state["role"], state.get("contract_model"))
             value = runtime_recovery.assess(root, state, contract, json.loads(input_file(root, args.judgment).read_text()))
         elif args.command == "turn-status":
             print(json.dumps(turn_status(root, args.agent_id, args.since), indent=2))
@@ -1343,6 +1412,8 @@ def main(argv=None):
                       "timeout": args.timeout, "correction_round": args.correction_round,
                       "tool_timeout": args.tool_timeout, "turn_calls": args.max_tool_calls,
                       "progress": lambda value: print(json.dumps(value), file=sys.stderr, flush=True)}
+            if args.model is not None:
+                kwargs["model"] = args.model
             if args.review_packet is not None:
                 path = args.review_packet if args.review_packet.is_absolute() else root / args.review_packet
                 kwargs["review_packet"] = json.loads(path.read_text())
