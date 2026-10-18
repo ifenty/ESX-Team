@@ -36,7 +36,7 @@ The kit now requires ASD-STE100 (Simplified Technical English) for all text that
   The linter finds no hard violation in them. `WRITING_STANDARD.md` and a root `CLAUDE.md` tell a session
   in this repository to follow the rule.
 - **Master location.** `INSTALL_UPGRADE.md` named a folder on one computer as the master. The master is
-  `https://github.com/ifenty/ESX-Team`. The branch `esx-team-fixes` has the current release.
+  `https://github.com/ifenty/ESX-Team`.
 - **Release history.** The history moved from `README.md` to this file. The text of the old entries did not change.
 - **Limit.** The official dictionary of ASD-STE100 is not in the kit. The linter checks the structural rules only.
   The result is not a formal STE validation.

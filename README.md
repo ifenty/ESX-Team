@@ -31,8 +31,7 @@ The master repository is `https://github.com/ifenty/ESX-Team`.
 A project does not contain a copy of the kit. A project contains the installed files and
 a small folder named `ESX-team-local/` with the installed version and the baselines.
 
-The branch `esx-team-fixes` has the current release. The branch `main` is at version 1.6.3.
-Use `esx-team-fixes` until the owner merges the two branches. See [INSTALL_UPGRADE.md](INSTALL_UPGRADE.md).
+See [INSTALL_UPGRADE.md](INSTALL_UPGRADE.md) to install and to upgrade.
 
 ## Requirements
 
@@ -70,11 +69,10 @@ The readiness checks fail until the project gives its scientific contract and it
 
 ## Install the kit in a project
 
-1. Clone the master repository and select the release branch:
+1. Clone the master repository:
 
    ```sh
    git clone https://github.com/ifenty/ESX-Team.git
-   git -C ESX-Team checkout esx-team-fixes
    ```
 
 2. Preview the installation. The preview writes nothing.

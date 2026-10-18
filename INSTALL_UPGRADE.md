@@ -9,20 +9,14 @@ The master repository is `https://github.com/ifenty/ESX-Team`. It is the only so
 A project receives files from the folder `template/` of the master. A project does not receive the installer,
 the tests, the examples or a second copy of the template.
 
-The master has 2 branches that matter:
-
-| Branch | Version | Use |
-|---|---|---|
-| `esx-team-fixes` | The current release (see `VERSION`) | Install and upgrade from this branch. |
-| `main` | 1.6.3 | Old. It does not have the releases 1.6.4 to the current release. |
-
-Select the branch before you install or upgrade:
+Get the master before you install or upgrade. Update it each time you upgrade:
 
 ```sh
 git clone https://github.com/ifenty/ESX-Team.git
-git -C ESX-Team checkout esx-team-fixes
 git -C ESX-Team pull
 ```
+
+The file `VERSION` in the master has the version of the kit.
 
 The installer and the upgrader read the master from the folder where they run. They record no location of the master in the project.
 
