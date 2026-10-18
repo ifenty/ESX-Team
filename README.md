@@ -282,6 +282,34 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.7.3: retained roles run in permission mode `auto`
+
+A headless `claude --print` does not apply `permissions.defaultMode` from the settings files. A
+retained role (Bob, Richard) therefore ran in `default` mode, where the CLI denies every compound
+command, heredoc, redirection and variable-bearing command it cannot check in advance. In the runoff
+pilot every one of nine consecutive role turns recorded permission denials (1 to 14 each), and a
+reviewer's evidence command was refused.
+
+Measured headless on the role launch (`--agent`, `--tools`, `--settings`) with a compound command,
+a heredoc, a redirection into the repo, `taskset` and `docker`: `auto` and `bypassPermissions` ran
+everything with no denial; `acceptEdits`, `dontAsk` and `manual` denied the shell commands; `plan` is
+read-only. So:
+
+- **`agent_runtime.role_permission_mode(root)`** decides the mode and the role launch always passes it
+  as `--permission-mode`. The default is `auto`, whatever the settings files say.
+- **`loop_control.py run --permissions auto|bypassPermissions|inherit`** (`/esx-loop --permissions MODE`)
+  chooses it for a loop, also on a running loop (from the next dispatch). `bypassPermissions` runs every
+  command unchecked; the PreToolUse hook still enforces settings `deny` rules, tool budgets and the Bash
+  time bound. `inherit` uses `permissions.defaultMode` from the settings files (local over project over
+  user), or `auto` if that is unset or not usable by a role. Other modes are refused.
+- `status` and the `run` output show the mode.
+
+`tests/test_ralph.py` no longer assumes PID 1 adopts an orphaned run (WSL2 and some containers use a
+subreaper); it asserts the run does not descend from the test process.
+
+Probes (`agent_runtime.py probe`) are unchanged: they keep their own `dontAsk` and witness launches.
+Test: `tests/test_release_173.py`.
+
 ## Version 1.7.2: pilot fixes reconciled so a project can upgrade
 
 A project that carried fixes in its own `tools/esx/` while installed at 1.6.3 could not take a

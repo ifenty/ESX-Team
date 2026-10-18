@@ -331,7 +331,9 @@ class StopTests(unittest.TestCase):
             pid = launch_detached(self.root, script)
             try:
                 self.assertTrue(wait_for(lambda: hook.verification_running(self.root)))
-                self.assertEqual(hook.parent_pid(pid), 1, 'the launch must reproduce the detached form')
+                # Orphans are adopted by PID 1 or, under WSL2 and some containers, by a subreaper; either way
+                # the run must not descend from this test process.
+                self.assertFalse(hook.descends_from(pid, os.getpid()), 'the launch must reproduce the detached form')
                 self.assertEqual([r['pid'] for r in hook.untracked_runs(hook.verification_running(self.root))], [pid])
                 result = self.step()
                 self.assertEqual(result.get('decision'), 'block', result)
