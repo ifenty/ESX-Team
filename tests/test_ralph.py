@@ -307,7 +307,9 @@ class StopTests(unittest.TestCase):
             self.assertEqual([r['script'] for r in found], ['tools/esx/final_verification.py'])
             self.assertEqual(found[0]['pid'], proc.pid)
             # The same script running in another checkout is not this loop's work.
-            self.assertEqual([r['pid'] for r in hook.verification_running(other)], [foreign.pid])
+            # Wait for the second process too: under load it can still be starting when the first is visible.
+            seen = wait_for(lambda: hook.verification_running(other))
+            self.assertEqual([r['pid'] for r in seen], [foreign.pid])
             self.assertEqual(len(hook.verification_running(self.root)), 1)
         finally:
             proc.kill()

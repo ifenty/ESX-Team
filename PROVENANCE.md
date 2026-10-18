@@ -1,11 +1,24 @@
-# Framework provenance
+# Provenance of the kit
 
-ESX adapts the ADX team contracts and tested workflow mechanisms into a portable
-project-configured kit. The deployed template contains no ADX imports or personal
-paths. Project-owned loop state, configuration and scientific verification are
-implemented locally in the deployment.
+This document states where the kit came from. It follows ASD-STE100. See [WRITING_STANDARD.md](WRITING_STANDARD.md).
 
-Source files inspected for this adaptation (SHA-256 of working-tree bytes):
+## Origin
+
+ESX-Team grew out of the repository [three-man-team](https://github.com/russelleNVy/three-man-team) by Russell Aaron (MIT license).
+That repository describes a small team of 3 agents: an architect, a builder and a reviewer.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the license text.
+
+## Adaptation from ADX
+
+ESX adapts the contracts and the tested workflow tools of the ADX team into a portable kit.
+Each project sets up the kit with its own configuration.
+The template contains no import from ADX and no personal path.
+The loop state, the configuration and the scientific verification of a project belong to that project.
+
+## Source files of the first adaptation
+
+The table lists the ADX files that the authors read for the first adaptation.
+The hash is the SHA-256 of the bytes of each file in the working tree at that time.
 
 | Source | SHA-256 |
 |---|---|
@@ -19,6 +32,19 @@ Source files inspected for this adaptation (SHA-256 of working-tree bytes):
 | `tools/adx_workflow.py` | `9eecedf2f6abdf8cdf0a1af9e642dcec581a8f09721fc6518722f0ca6b9ec2c6` |
 | `tools/loop_gate.py` | `7b135ffcaa0b7fd13a8bf5d1f0f894f5871b418cb5e8266ba7aeb3c19e7db02d` |
 
-The source digests identify adaptation inputs. ESX has its own regression suite
-and qualification record; the originating project’s test result does not certify
-this kit or any receiving project. See [VALIDATION.md](VALIDATION.md).
+The hashes identify the inputs of the adaptation. They do not certify the kit.
+
+## Later changes from field use
+
+Projects that use the kit send back fixes. The history is in [CHANGELOG.md](CHANGELOG.md).
+These are the main sources:
+
+- The sparse-runoff project `MITgcm_new_runoff` was the pilot project. Release 1.7.2 moved its framework fixes
+  into the kit. The file `self-improvement/reconcile_1.7.2.md` lists each change and the decision for it.
+- Release 1.7.3 and later releases came from the same project. They fix the permission mode of the role sessions
+  and the frontmatter of the `/esx-loop` command.
+
+## What the provenance does not show
+
+The test results of ADX do not certify this kit or a project that uses it.
+The kit has its own tests and its own validation record. See [VALIDATION.md](VALIDATION.md).
