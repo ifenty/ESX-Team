@@ -282,6 +282,14 @@ concrete delivery failures. The gate prioritizes pending announcements. Failed
 network delivery remains visible and permits scientific work to proceed.
 # ESX-Team
 
+## Version 1.7.4: the /esx-loop command's frontmatter parses
+
+1.7.3 changed the `argument-hint` of `template/.claude/commands/esx-loop.md` to
+`[--max-iterations N] [--permissions MODE] | status | ...`, a YAML flow list followed by stray text, and
+Claude Code showed "failed to parse" at the top of the command. The hint is now a quoted string.
+`tests/test_release_174.py` parses the frontmatter of every command file in the template (PyYAML when
+installed, a structural check otherwise), and fails on the 1.7.3 text.
+
 ## Version 1.7.3: retained roles run in permission mode `auto`
 
 A headless `claude --print` does not apply `permissions.defaultMode` from the settings files. A
